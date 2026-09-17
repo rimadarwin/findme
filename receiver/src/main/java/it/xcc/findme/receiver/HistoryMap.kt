@@ -75,7 +75,11 @@ fun HistoryMap(
         update = { view ->
             view.getMapAsync { map ->
                 fun updateSources(style: Style) {
-                    val routePoints = points.map { Point.fromLngLat(it.longitude, it.latitude) }
+                    val safeIndex = selectedIndex.coerceIn(0..points.lastIndex.coerceAtLeast(0))
+                    val visiblePoints = points.take(safeIndex + 1)
+                    val routePoints = visiblePoints.map {
+                        Point.fromLngLat(it.longitude, it.latitude)
+                    }
                     style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE)
                         ?.setGeoJson(
                             FeatureCollection.fromFeatures(
