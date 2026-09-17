@@ -66,7 +66,7 @@ Nel tab **Posizione**, l’occhio abilita temporaneamente il tracking rapido.
 storico. La sessione scade automaticamente dopo 90 secondi e viene rinnovata
 solo mentre la vista è attiva.
 
-Audio e video sono realmente on-demand: senza uno stream attivo, né il
+Audio, video e mirroring schermo sono realmente on-demand: senza uno stream attivo, né il
 trasmettitore né il ricevitore mantengono una connessione LiveKit. Lo storico,
 con retention di 30 giorni, offre filtri 6h/24h/7 giorni o data/ora, percorso
 MapLibre, timeline e lista paginata.
@@ -78,6 +78,14 @@ Il ricevitore può inoltre registrare clip locali indipendenti: video senza
 audio in `Movies/FindMe` (`.mp4`) e audio in `Music/FindMe` (`.m4a`). La
 registrazione usa start/stop manuale, si arresta automaticamente lasciando il
 tab o interrompendo lo stream e ha un limite di sicurezza di 30 minuti.
+
+Il tab **Schermo** visualizza e registra in MP4 lo schermo del trasmettitore.
+Android richiede una conferma MediaProjection al primo setup e nuovamente dopo
+riavvio, aggiornamento, arresto del processo o revoca. La dashboard del
+trasmettitore mostra lo stato e il pulsante **Riattiva**. La cattura autorizzata
+rimane pronta, mentre LiveKit viene collegato solo quando lo switch remoto è ON.
+L’audio interno delle applicazioni non viene acquisito: resta disponibile lo
+stream separato del microfono.
 
 Dal tab Posizione è inoltre possibile:
 
@@ -105,4 +113,4 @@ Per database, Edge Function, LiveKit, mappe e Device Owner vedere
 - Notifica foreground e indicatori privacy Android restano visibili.
 - In modalità standard, dopo reboot è necessario aprire l'app trasmittente.
 - Il riavvio completamente automatico richiede il provisioning Device Owner.
-- L'MVP mostra un flusso video alla volta; database e stanze sono già multi-trasmettitore.
+- Camera e schermo possono essere pubblicati insieme e sono visualizzati in tab separati.

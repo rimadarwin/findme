@@ -162,7 +162,7 @@ La resilienza è composta da:
   bloccano;
 - retry persistente anche sul ricevitore e messaggi tecnici rimossi dopo il
   recupero;
-- connessione LiveKit solo quando audio o video sono richiesti;
+- connessione LiveKit solo quando audio, video o schermo sono richiesti;
 - cache locale delle ultime impostazioni tracking valide;
 - lease rapido di 90 secondi, rinnovato ogni 20 secondi e con fallback offline;
 - `BootReceiver` quando l'app è Device Owner;
@@ -172,11 +172,23 @@ Una perdita reale di Internet rende inevitabilmente il dispositivo
 temporaneamente offline. Al ripristino della rete non è necessario riaprire
 l’app né disattivare e riattivare il monitoraggio.
 
+## 7. Mirroring schermo
+
+Il primo setup del trasmettitore mostra la conferma Android MediaProjection.
+La cattura resta pronta nel foreground service, ma non viene pubblicata e non
+consuma participant-minutes LiveKit finché **Schermo** è OFF sul ricevitore.
+
+MediaProjection non sopravvive a reboot, aggiornamento APK, arresto del processo
+o revoca dalla notifica di sistema. In questi casi la notifica FindMe apre la
+dashboard, dove **Riattiva** ripresenta il consenso. Contenuti DRM, finestre con
+`FLAG_SECURE` e alcune schermate di sistema possono apparire nere. L’audio
+interno non è acquisito.
+
 FCM non è necessario per controllare camera e microfono sui telefoni Device
 Owner e non può aggirare i vincoli Android sui telefoni standard. È invece
 usato per consegnare al ricevitore gli avvisi area descritti di seguito.
 
-## 7. Firebase Cloud Messaging per gli avvisi area
+## 8. Firebase Cloud Messaging per gli avvisi area
 
 Gli avvisi di uscita area usano FCM e arrivano al ricevitore anche quando l’app
 non è aperta. Firebase Cloud Messaging non richiede un piano a pagamento.

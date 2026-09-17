@@ -19,6 +19,7 @@ import livekit.org.webrtc.VideoSink
 class VideoMp4Recorder(
     private val context: Context,
     private val deviceName: String,
+    private val recordingKind: RecordingKind = RecordingKind.VIDEO,
     private val onStarted: () -> Unit,
     private val onFinished: (RecordingResult) -> Unit,
 ) {
@@ -125,7 +126,7 @@ class VideoMp4Recorder(
         )
         outputWidth = ((sourceWidth * scale).toInt() / 2 * 2).coerceAtLeast(2)
         outputHeight = ((sourceHeight * scale).toInt() / 2 * 2).coerceAtLeast(2)
-        output = PendingMediaOutput.create(context, RecordingKind.VIDEO, deviceName)
+        output = PendingMediaOutput.create(context, recordingKind, deviceName)
         muxer = MediaMuxer(
             output!!.descriptor.fileDescriptor,
             MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4,

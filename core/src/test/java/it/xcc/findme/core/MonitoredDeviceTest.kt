@@ -62,14 +62,22 @@ class MonitoredDeviceTest {
 
         assertFalse(oldStatus.cameraStreaming)
         assertFalse(oldStatus.microphoneStreaming)
+        assertFalse(oldStatus.screenShareReady)
+        assertFalse(oldStatus.screenStreaming)
         assertEquals("front", oldStatus.cameraFacing)
         val encodedStatus = Json.encodeToString(DeviceStatus.serializer(), oldStatus)
         assertTrue(encodedStatus.contains("\"camera_streaming\":false"))
         assertTrue(encodedStatus.contains("\"microphone_streaming\":false"))
+        assertTrue(encodedStatus.contains("\"screen_share_ready\":false"))
+        assertTrue(encodedStatus.contains("\"screen_streaming\":false"))
         assertTrue(encodedStatus.contains("\"camera_facing\":\"front\""))
         assertEquals(
             "\"switch_camera\"",
             Json.encodeToString(CommandType.serializer(), CommandType.SWITCH_CAMERA),
+        )
+        assertEquals(
+            "\"start_screen\"",
+            Json.encodeToString(CommandType.serializer(), CommandType.START_SCREEN),
         )
     }
 

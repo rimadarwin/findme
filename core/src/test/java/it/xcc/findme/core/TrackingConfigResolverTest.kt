@@ -103,9 +103,10 @@ class TrackingConfigResolverTest {
 
     @Test
     fun `media connects only while at least one stream is requested`() {
-        assertFalse(MediaConnectionPolicy.shouldConnect(false, false))
-        assertTrue(MediaConnectionPolicy.shouldConnect(true, false))
-        assertTrue(MediaConnectionPolicy.shouldConnect(false, true))
+        assertFalse(MediaConnectionPolicy.shouldConnect(false, false, false))
+        assertTrue(MediaConnectionPolicy.shouldConnect(true, false, false))
+        assertTrue(MediaConnectionPolicy.shouldConnect(false, true, false))
+        assertTrue(MediaConnectionPolicy.shouldConnect(false, false, true))
     }
 
     @Test

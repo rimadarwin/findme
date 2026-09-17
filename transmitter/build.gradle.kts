@@ -12,8 +12,8 @@ android {
         applicationId = "it.xcc.findme.transmitter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     buildFeatures.compose = true
@@ -38,4 +38,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("io.livekit:livekit-android:2.20.1")
+    testImplementation("junit:junit:4.13.2")
 }

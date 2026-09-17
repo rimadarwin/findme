@@ -89,8 +89,11 @@ object TrackingConfigResolver {
 }
 
 object MediaConnectionPolicy {
-    fun shouldConnect(cameraStreaming: Boolean, microphoneStreaming: Boolean): Boolean =
-        cameraStreaming || microphoneStreaming
+    fun shouldConnect(
+        cameraStreaming: Boolean,
+        microphoneStreaming: Boolean,
+        screenStreaming: Boolean = false,
+    ): Boolean = cameraStreaming || microphoneStreaming || screenStreaming
 }
 
 object RouteSampler {

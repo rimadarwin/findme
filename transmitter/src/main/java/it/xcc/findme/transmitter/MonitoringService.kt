@@ -2,6 +2,7 @@ package it.xcc.findme.transmitter
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -10,9 +11,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.BatteryManager
+import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
@@ -30,9 +33,12 @@ import io.livekit.android.LiveKit
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
 import io.livekit.android.room.Room
+import io.livekit.android.room.participant.VideoTrackPublishOptions
 import io.livekit.android.room.track.CameraPosition
 import io.livekit.android.room.track.LocalVideoTrack
+import io.livekit.android.room.track.LocalVideoTrackOptions
 import io.livekit.android.room.track.Track
+import io.livekit.android.room.track.VideoCaptureParameter
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
@@ -44,6 +50,8 @@ import it.xcc.findme.core.FindMeRepository
 import it.xcc.findme.core.MediaConnectionPolicy
 import it.xcc.findme.core.TrackingConfigResolver
 import it.xcc.findme.core.TrackingRuntimeState
+import it.xcc.findme.transmitter.screen.ProjectionVideoCapturer
+import it.xcc.findme.transmitter.screen.ScreenProjectionController
 import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
@@ -77,8 +85,13 @@ class MonitoringService : Service() {
     private val historyMutex = Mutex()
     private var desiredCameraStreaming = false
     private var desiredMicrophoneStreaming = false
+    private var desiredScreenStreaming = false
     private var cameraStreaming = false
     private var microphoneStreaming = false
+    private var screenStreaming = false
+    private var screenTrack: LocalVideoTrack? = null
+    private var mediaRecoveryJob: Job? = null
+    private lateinit var screenProjectionController: ScreenProjectionController
     private var cameraFacing = CameraPosition.FRONT
     private var trackingState: TrackingRuntimeState? = null
     private var effectiveConfig: EffectiveTrackingConfig =
@@ -102,6 +115,7 @@ class MonitoringService : Service() {
                 networkWasLost = false
                 Log.i(TAG, "Network available again; restarting control plane")
                 recoverySignals.trySend(ControlPlaneRestart("network restored"))
+                requestMediaRecovery()
             }
         }
     }
@@ -113,6 +127,7 @@ class MonitoringService : Service() {
         locationClient = LocationServices.getFusedLocationProviderClient(this)
         connectivityManager = getSystemService(ConnectivityManager::class.java)
         connectivityManager.registerDefaultNetworkCallback(networkCallback)
+        screenProjectionController = ScreenProjectionController(this, ::onScreenProjectionStopped)
         createNotificationChannel()
     }
 
@@ -122,7 +137,11 @@ class MonitoringService : Service() {
             return START_NOT_STICKY
         }
         identity.monitoringEnabled = true
-        startAsForeground()
+        val authorizingScreen = intent?.action == ACTION_AUTHORIZE_SCREEN
+        startAsForeground(includeMediaProjection = authorizingScreen)
+        if (authorizingScreen) {
+            activateScreenProjection(intent)
+        }
         trackingState = identity.cachedTrackingState()
         applyEffectiveTrackingConfig()
         if (controlPlaneJob?.isActive != true) {
@@ -136,7 +155,13 @@ class MonitoringService : Service() {
         runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
         scope.cancel()
         room?.disconnect()
+        screenProjectionController.stop()
         super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        screenProjectionController.resize()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -273,6 +298,21 @@ class MonitoringService : Service() {
                 }
                 track.switchCamera(position = cameraFacing)
             }
+            CommandType.START_SCREEN -> {
+                if (screenProjectionController.isReady) {
+                    desiredScreenStreaming = true
+                    syncMediaState()
+                } else {
+                    desiredScreenStreaming = false
+                    screenStreaming = false
+                    Log.w(TAG, "Screen stream requested without active MediaProjection")
+                    startAsForeground(includeMediaProjection = false)
+                }
+            }
+            CommandType.STOP_SCREEN -> {
+                desiredScreenStreaming = false
+                syncMediaState()
+            }
             CommandType.START_MONITORING -> identity.monitoringEnabled = true
             CommandType.STOP_MONITORING -> {
                 identity.monitoringEnabled = false
@@ -293,6 +333,7 @@ class MonitoringService : Service() {
         if (!MediaConnectionPolicy.shouldConnect(
                 desiredCameraStreaming,
                 desiredMicrophoneStreaming,
+                desiredScreenStreaming,
             )
         ) {
             disconnectMediaRoom()
@@ -308,6 +349,51 @@ class MonitoringService : Service() {
             activeRoom.localParticipant.setMicrophoneEnabled(desiredMicrophoneStreaming)
             microphoneStreaming = desiredMicrophoneStreaming
         }
+        if (screenStreaming != desiredScreenStreaming) {
+            if (desiredScreenStreaming) {
+                publishScreenTrack(activeRoom)
+            } else {
+                screenTrack?.let(activeRoom.localParticipant::unpublishTrack)
+                screenTrack = null
+                screenStreaming = false
+            }
+        }
+    }
+
+    private suspend fun publishScreenTrack(activeRoom: Room) {
+        check(screenProjectionController.isReady) {
+            "Screen capture authorization is not active"
+        }
+        val captureSize = screenProjectionController.captureSize
+        val track = activeRoom.localParticipant.createVideoTrack(
+            name = SCREEN_TRACK_NAME,
+            capturer = ProjectionVideoCapturer(screenProjectionController),
+            options = LocalVideoTrackOptions(
+                isScreencast = true,
+                captureParams = VideoCaptureParameter(
+                    width = captureSize.width,
+                    height = captureSize.height,
+                    maxFps = SCREEN_FRAME_RATE,
+                    adaptOutputToDimensions = false,
+                ),
+            ),
+        )
+        try {
+            track.startCapture()
+            activeRoom.localParticipant.publishVideoTrack(
+                track = track,
+                options = VideoTrackPublishOptions(
+                    base = activeRoom.screenShareTrackPublishDefaults,
+                    source = Track.Source.SCREEN_SHARE,
+                ),
+            )
+            screenTrack = track
+            screenStreaming = true
+            Log.i(TAG, "Screen track published on demand")
+        } catch (error: Throwable) {
+            runCatching { track.stop() }
+            throw error
+        }
     }
 
     private suspend fun connectMediaRoom(): Room {
@@ -320,7 +406,10 @@ class MonitoringService : Service() {
                     room = null
                     cameraStreaming = false
                     microphoneStreaming = false
+                    screenStreaming = false
+                    screenTrack = null
                     runCatching { publishStatus() }
+                    requestMediaRecovery()
                 }
             }
         }
@@ -338,6 +427,8 @@ class MonitoringService : Service() {
     }
 
     private fun disconnectMediaRoom() {
+        mediaRecoveryJob?.cancel()
+        mediaRecoveryJob = null
         mediaEventsJob?.cancel()
         mediaEventsJob = null
         room?.disconnect()
@@ -345,6 +436,47 @@ class MonitoringService : Service() {
         room = null
         cameraStreaming = false
         microphoneStreaming = false
+        screenStreaming = false
+        screenTrack = null
+    }
+
+    private fun requestMediaRecovery() {
+        if (!MediaConnectionPolicy.shouldConnect(
+                desiredCameraStreaming,
+                desiredMicrophoneStreaming,
+                desiredScreenStreaming,
+            ) ||
+            mediaRecoveryJob?.isActive == true
+        ) {
+            return
+        }
+        mediaRecoveryJob = scope.launch {
+            var consecutiveFailures = 0
+            while (isActive &&
+                MediaConnectionPolicy.shouldConnect(
+                    desiredCameraStreaming,
+                    desiredMicrophoneStreaming,
+                    desiredScreenStreaming,
+                ) &&
+                room == null
+            ) {
+                if (consecutiveFailures > 0) {
+                    delay(ConnectionRecoveryPolicy.retryDelayMs(consecutiveFailures))
+                }
+                runCatching {
+                    syncMediaState()
+                    publishStatus()
+                }.onSuccess {
+                    if (room != null) {
+                        Log.i(TAG, "LiveKit publisher recovered automatically")
+                        return@launch
+                    }
+                }.onFailure {
+                    consecutiveFailures++
+                    Log.e(TAG, "LiveKit publisher recovery failed", it)
+                }
+            }
+        }
     }
 
     private suspend fun sendHeartbeats() {
@@ -385,6 +517,8 @@ class MonitoringService : Service() {
                 microphoneAvailable = packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE),
                 cameraStreaming = cameraStreaming,
                 microphoneStreaming = microphoneStreaming,
+                screenShareReady = screenProjectionController.isReady,
+                screenStreaming = screenStreaming,
                 cameraFacing = when (cameraFacing) {
                     CameraPosition.BACK -> "back"
                     else -> "front"
@@ -393,6 +527,44 @@ class MonitoringService : Service() {
             ),
         )
     }
+
+    private fun activateScreenProjection(intent: Intent) {
+        val resultCode = intent.getIntExtra(EXTRA_PROJECTION_RESULT_CODE, Activity.RESULT_CANCELED)
+        val resultData = projectionResultData(intent)
+        if (resultCode != Activity.RESULT_OK || resultData == null) {
+            Log.w(TAG, "Screen capture authorization data is missing")
+            return
+        }
+        runCatching {
+            screenProjectionController.start(resultCode, resultData)
+            identity.screenProjectionEverAuthorized = true
+            startAsForeground(includeMediaProjection = true)
+        }.onSuccess {
+            scope.launch { runCatching { publishStatus() } }
+        }.onFailure {
+            Log.e(TAG, "Screen capture activation failed", it)
+            startAsForeground(includeMediaProjection = false)
+        }
+    }
+
+    private fun onScreenProjectionStopped() {
+        desiredScreenStreaming = false
+        screenStreaming = false
+        screenTrack = null
+        startAsForeground(includeMediaProjection = false)
+        scope.launch {
+            runCatching { syncMediaState() }
+            runCatching { publishStatus() }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun projectionResultData(intent: Intent): Intent? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(EXTRA_PROJECTION_RESULT_DATA, Intent::class.java)
+        } else {
+            intent.getParcelableExtra(EXTRA_PROJECTION_RESULT_DATA)
+        }
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -470,27 +642,45 @@ class MonitoringService : Service() {
         }
 
     @SuppressLint("InlinedApi")
-    private fun startAsForeground() {
+    private fun startAsForeground(includeMediaProjection: Boolean = screenProjectionController.isReady) {
+        val projectionNeedsAttention =
+            identity.screenProjectionEverAuthorized && !screenProjectionController.isReady
         val activityIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, MainActivity::class.java).apply {
+                if (projectionNeedsAttention) {
+                    putExtra(MainActivity.EXTRA_REQUEST_SCREEN_PROJECTION, true)
+                }
+            },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentTitle("Monitoraggio FindMe attivo")
-            .setContentText("Posizione, camera e microfono sono disponibili da remoto")
+            .setContentText(
+                if (projectionNeedsAttention) {
+                    "Tocca per riattivare il mirroring dello schermo"
+                } else {
+                    "Posizione, camera, microfono e schermo disponibili da remoto"
+                },
+            )
             .setContentIntent(activityIntent)
             .setOngoing(true)
             .build()
+        var foregroundTypes =
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        if (includeMediaProjection) {
+            foregroundTypes = foregroundTypes or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        }
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
             notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+            foregroundTypes,
         )
     }
 
@@ -515,6 +705,12 @@ class MonitoringService : Service() {
         private const val TRACKING_EVALUATION_INTERVAL_MS = 1_000L
         private const val MEDIA_WATCHDOG_INTERVAL_MS = 5_000L
         private const val HEALTH_CHECK_INTERVAL_MS = 15 * 60 * 1_000L
+        private const val SCREEN_TRACK_NAME = "findme-screen"
+        private const val SCREEN_FRAME_RATE = 15
+        private const val ACTION_AUTHORIZE_SCREEN =
+            "it.xcc.findme.transmitter.action.AUTHORIZE_SCREEN"
+        private const val EXTRA_PROJECTION_RESULT_CODE = "projection_result_code"
+        private const val EXTRA_PROJECTION_RESULT_DATA = "projection_result_data"
 
         val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
@@ -523,6 +719,16 @@ class MonitoringService : Service() {
         )
 
         fun intent(context: Context) = Intent(context, MonitoringService::class.java)
+
+        fun screenAuthorizationIntent(
+            context: Context,
+            resultCode: Int,
+            resultData: Intent,
+        ) = Intent(context, MonitoringService::class.java).apply {
+            action = ACTION_AUTHORIZE_SCREEN
+            putExtra(EXTRA_PROJECTION_RESULT_CODE, resultCode)
+            putExtra(EXTRA_PROJECTION_RESULT_DATA, resultData)
+        }
     }
 
     private class ControlPlaneRestart(reason: String) : RuntimeException(reason)

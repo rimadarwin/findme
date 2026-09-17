@@ -41,6 +41,9 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - storico separato dalla posizione corrente, con intervallo moltiplicato e
   filtro di movimento dipendente anche dalla precisione GPS;
 - LiveKit completamente on-demand e listener comandi Supabase indipendente;
+- mirroring schermo MediaProjection con cattura persistente indipendente dalla
+  stanza LiveKit, quarta tab source-aware e riattivazione manuale dopo
+  reboot/revoca;
 - storico posizioni con filtri 6h/24h/7 giorni e data/ora, percorso MapLibre,
   timeline fino a 1.500 punti e lista paginata a 50 righe.
 - mappa Posizione immersiva in orientamento landscape con pannello laterale;
@@ -53,8 +56,9 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - acquisizione di un fotogramma dal video remoto e salvataggio nella galleria
   del ricevitore in `Pictures/FindMe`.
 - registrazione locale indipendente di video H.264/MP4 in `Movies/FindMe` e
-  audio AAC/M4A in `Music/FindMe`, con REC manuale, timer, limite 30 minuti e
-  finalizzazione automatica su uscita dal tab, stop stream o disconnessione.
+  schermo H.264/MP4 in `Movies/FindMe` e audio AAC/M4A in `Music/FindMe`, con
+  REC manuale, timer, limite 30 minuti e finalizzazione automatica su uscita
+  dal tab, stop stream o disconnessione.
 - resilienza di rete end-to-end: client Supabase unico per processo, refresh
   sessione esplicito, rinnovo periodico Realtime, watchdog heartbeat, retry
   esponenziale e riavvio immediato del piano dati al ritorno della rete.
@@ -66,7 +70,8 @@ Le migrazioni `202609160005_media_state.sql`,
 `202609170001_receiver_device_alias.sql` e
 `202609170002_tracking_performance.sql`, inclusa la correzione RLS
 `202609170003_tracking_policy_fix.sql`, e
-`202609170004_geofence_alert.sql` devono essere applicate prima di installare
+`202609170004_geofence_alert.sql` e
+`202609170005_screen_mirroring.sql` devono essere applicate prima di installare
 le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano

@@ -1,8 +1,10 @@
 package it.xcc.findme.transmitter
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -60,6 +62,8 @@ import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
 import it.xcc.findme.core.DeviceRole
 import it.xcc.findme.core.FindMeRepository
+import it.xcc.findme.transmitter.screen.ScreenProjectionRuntime
+import it.xcc.findme.transmitter.screen.ScreenProjectionState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -92,6 +96,8 @@ class MainActivity : ComponentActivity() {
     private var accessGranted by mutableStateOf(false)
     private var accessLoading by mutableStateOf(false)
     private var initializationJob: Job? = null
+    private var screenProjectionState by mutableStateOf(ScreenProjectionState.UNAVAILABLE)
+    private var pendingScreenProjectionRequest = false
 
     private val permissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -123,10 +129,27 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    private val screenProjectionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            identity.screenProjectionOnboardingAttempted = true
+            val data = result.data
+            if (result.resultCode == Activity.RESULT_OK && data != null) {
+                ContextCompat.startForegroundService(
+                    this,
+                    MonitoringService.screenAuthorizationIntent(this, result.resultCode, data),
+                )
+                message = "Autorizzazione mirroring ricevuta."
+            } else {
+                message = "Mirroring non autorizzato. Puoi riattivarlo quando vuoi."
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         identity = DeviceIdentity(this)
         monitoring = identity.monitoringEnabled
+        pendingScreenProjectionRequest =
+            intent.getBooleanExtra(EXTRA_REQUEST_SCREEN_PROJECTION, false)
         if (AppConfig.isConfigured) {
             repository = runCatching { FindMeRepository() }.getOrNull()
         }
@@ -164,7 +187,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        lifecycleScope.launch {
+            ScreenProjectionRuntime.state.collect { screenProjectionState = it }
+        }
         initializeDevice()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_REQUEST_SCREEN_PROJECTION, false)) {
+            pendingScreenProjectionRequest = true
+            if (accessGranted) requestScreenProjection()
+        }
     }
 
     override fun onResume() {
@@ -376,6 +411,43 @@ class MainActivity : ComponentActivity() {
                     },
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text("Mirroring schermo", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            when (screenProjectionState) {
+                                ScreenProjectionState.UNAVAILABLE ->
+                                    "Non autorizzato: richiede conferma Android"
+                                ScreenProjectionState.STARTING -> "Attivazione in corso…"
+                                ScreenProjectionState.READY -> "Pronto per le richieste remote"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Button(
+                        enabled = monitoring &&
+                            monitoringPermissionsGranted &&
+                            screenProjectionState == ScreenProjectionState.UNAVAILABLE,
+                        onClick = ::requestScreenProjection,
+                    ) {
+                        Text(
+                            if (screenProjectionState == ScreenProjectionState.READY) {
+                                "Pronto"
+                            } else {
+                                "Riattiva"
+                            },
+                        )
+                    }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 PermissionSwitch(
                     title = "Camera, microfono e GPS",
                     subtitle = "Necessari per il monitoraggio",
@@ -530,6 +602,7 @@ class MainActivity : ComponentActivity() {
                     if (it.unlocked == true) {
                         accessGranted = true
                         message = ""
+                        requestInitialScreenProjectionIfNeeded()
                     } else {
                         message = ""
                     }
@@ -609,10 +682,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startMonitoring() {
+        if (!monitoringPermissionsGranted) {
+            requestPermissions()
+            message = "Concedi prima camera, microfono e GPS."
+            return
+        }
         identity.monitoringEnabled = true
         monitoring = true
         ContextCompat.startForegroundService(this, MonitoringService.intent(this))
         message = "Monitoraggio avviato."
+        requestInitialScreenProjectionIfNeeded()
     }
 
     private fun stopMonitoring() {
@@ -622,7 +701,27 @@ class MainActivity : ComponentActivity() {
         message = "Monitoraggio fermato."
     }
 
-    private companion object {
+    private fun requestInitialScreenProjectionIfNeeded() {
+        if (!accessGranted || !monitoring || !monitoringPermissionsGranted) return
+        if (screenProjectionState != ScreenProjectionState.UNAVAILABLE) return
+        if (identity.screenProjectionOnboardingAttempted && !pendingScreenProjectionRequest) return
+        requestScreenProjection()
+    }
+
+    private fun requestScreenProjection() {
+        pendingScreenProjectionRequest = false
+        if (!monitoring || !monitoringPermissionsGranted) {
+            message = "Avvia prima il monitoraggio e concedi i permessi richiesti."
+            return
+        }
+        identity.screenProjectionOnboardingAttempted = true
+        val manager = getSystemService(MediaProjectionManager::class.java)
+        Log.i(TAG, "Requesting MediaProjection authorization")
+        screenProjectionLauncher.launch(manager.createScreenCaptureIntent())
+    }
+
+    companion object {
         const val TAG = "FindMeTransmitter"
+        const val EXTRA_REQUEST_SCREEN_PROJECTION = "request_screen_projection"
     }
 }

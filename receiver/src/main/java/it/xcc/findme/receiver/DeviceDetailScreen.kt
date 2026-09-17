@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,8 +16,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ScreenShare
+import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Cameraswitch
 import androidx.compose.material.icons.outlined.FiberManualRecord
@@ -40,16 +46,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.MonitoredDevice
 import it.xcc.findme.receiver.recording.LocalRecordingState
 import it.xcc.findme.receiver.recording.RecordingPolicy
 
-enum class DeviceTab(val label: String) {
-    POSITION("Posizione"),
-    VIDEO("Video"),
-    AUDIO("Audio"),
+enum class DeviceTab(
+    val label: String,
+    val icon: ImageVector,
+) {
+    POSITION("Posizione", Icons.Outlined.LocationOn),
+    VIDEO("Video", Icons.Outlined.Videocam),
+    AUDIO("Audio", Icons.Outlined.Mic),
+    SCREEN("Schermo", Icons.AutoMirrored.Outlined.ScreenShare),
 }
 
 @Composable
@@ -68,17 +79,22 @@ fun DeviceDetailScreen(
     onFastHistoryChange: (Boolean) -> Unit,
     onGeofenceChange: (Boolean) -> Unit,
     onFullscreen: () -> Unit,
+    onScreenFullscreen: () -> Unit,
     onOpenHistory: () -> Unit,
     onTakePhoto: () -> Unit,
     videoTrackAvailable: Boolean,
     audioTrackAvailable: Boolean,
+    screenTrackAvailable: Boolean,
     videoRecordingState: LocalRecordingState,
     audioRecordingState: LocalRecordingState,
+    screenRecordingState: LocalRecordingState,
     onVideoRecordingToggle: () -> Unit,
     onAudioRecordingToggle: () -> Unit,
+    onScreenRecordingToggle: () -> Unit,
     snapshotPreview: Bitmap?,
     onSnapshotAnimationFinished: () -> Unit,
     videoContent: @Composable () -> Unit,
+    screenContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -96,7 +112,13 @@ fun DeviceDetailScreen(
                     Tab(
                         selected = selectedTab == tab,
                         onClick = { onTabSelected(tab) },
-                        text = { Text(tab.label) },
+                        icon = {
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = tab.label,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        },
                     )
                 }
             }
@@ -130,6 +152,16 @@ fun DeviceDetailScreen(
                     trackAvailable = audioTrackAvailable,
                     recordingState = audioRecordingState,
                     onRecordingToggle = onAudioRecordingToggle,
+                )
+                DeviceTab.SCREEN -> ScreenTab(
+                    item = item,
+                    heartbeatIntervalSec = heartbeatIntervalSec,
+                    onCommand = onCommand,
+                    trackAvailable = screenTrackAvailable,
+                    recordingState = screenRecordingState,
+                    onRecordingToggle = onScreenRecordingToggle,
+                    onFullscreen = onScreenFullscreen,
+                    screenContent = screenContent,
                 )
             }
         }
@@ -481,6 +513,121 @@ private fun VideoTab(
                 "Camera ${if (item.status?.cameraFacing == "back") "posteriore" else "frontale"}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScreenTab(
+    item: MonitoredDevice,
+    heartbeatIntervalSec: Int,
+    onCommand: (CommandType) -> Unit,
+    trackAvailable: Boolean,
+    recordingState: LocalRecordingState,
+    onRecordingToggle: () -> Unit,
+    onFullscreen: () -> Unit,
+    screenContent: @Composable () -> Unit,
+) {
+    val ready = item.status?.screenShareReady == true
+    val streaming = item.status?.screenStreaming == true
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        MediaSwitch(
+            title = "Mirroring schermo",
+            checked = streaming,
+            enabled = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec) && ready,
+            onCheckedChange = {
+                onCommand(if (it) CommandType.START_SCREEN else CommandType.STOP_SCREEN)
+            },
+        )
+        Text(
+            if (ready) {
+                "Trasmettitore autorizzato e pronto"
+            } else {
+                "Riattiva il mirroring dall’app del trasmettitore"
+            },
+            color = if (ready) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            style = MaterialTheme.typography.bodySmall,
+        )
+        RecordingControl(
+            title = "Registra schermo",
+            state = recordingState,
+            enabled = streaming && trackAvailable,
+            onToggle = onRecordingToggle,
+        )
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .aspectRatio(SCREEN_PREVIEW_ASPECT_RATIO),
+                colors = CardDefaults.cardColors(containerColor = Color.Black),
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    screenContent()
+                    if (!streaming) {
+                        Text(
+                            if (ready) "Mirroring non attivo" else "Mirroring non autorizzato",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(
+                        enabled = streaming && trackAvailable,
+                        onClick = onFullscreen,
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Fullscreen,
+                            contentDescription = "Schermo intero verticale",
+                            tint = Color.White,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private const val SCREEN_PREVIEW_ASPECT_RATIO = 576f / 1280f
+
+@Composable
+internal fun ScreenFullscreenScreen(
+    streaming: Boolean,
+    onExit: () -> Unit,
+    screenContent: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        screenContent()
+        if (!streaming) {
+            Text("Mirroring non attivo", color = Color.White)
+        }
+        IconButton(
+            onClick = onExit,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp),
+        ) {
+            Icon(
+                Icons.Outlined.FullscreenExit,
+                contentDescription = "Torna al dettaglio",
+                tint = Color.White,
+                modifier = Modifier.size(32.dp),
             )
         }
     }

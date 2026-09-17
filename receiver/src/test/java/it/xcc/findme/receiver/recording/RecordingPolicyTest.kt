@@ -38,6 +38,15 @@ class RecordingPolicyTest {
                 zoneId = ZoneOffset.UTC,
             ),
         )
+        assertEquals(
+            "FindMe_Schermo_Telefono_20260917_140305.mp4",
+            RecordingFileNames.create(
+                kind = RecordingKind.SCREEN,
+                deviceName = "Schermo Telefono",
+                instant = instant,
+                zoneId = ZoneOffset.UTC,
+            ),
+        )
     }
 
     @Test

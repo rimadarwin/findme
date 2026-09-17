@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -48,6 +49,7 @@ import io.livekit.android.room.Room
 import io.livekit.android.room.track.AudioTrack
 import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoTrack
+import livekit.org.webrtc.RendererCommon
 import it.xcc.findme.core.AppConfig
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.ConnectionRecoveryPolicy
@@ -63,8 +65,11 @@ import it.xcc.findme.receiver.recording.AudioM4aRecorder
 import it.xcc.findme.receiver.recording.LocalRecordingState
 import it.xcc.findme.receiver.recording.RecordingPolicy
 import it.xcc.findme.receiver.recording.RecordingResult
+import it.xcc.findme.receiver.recording.RecordingKind
 import it.xcc.findme.receiver.recording.VideoMp4Recorder
 import java.time.Instant
+import java.util.Collections
+import java.util.IdentityHashMap
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -88,17 +93,22 @@ class ReceiverActivity : ComponentActivity() {
     private var showSettings by mutableStateOf(false)
     private var historyDeviceId by mutableStateOf<String?>(null)
     private var fullscreenDeviceId by mutableStateOf<String?>(null)
+    private var screenFullscreenDeviceId by mutableStateOf<String?>(null)
     private var historyFullscreenActive by mutableStateOf(false)
     private var trackingSettings by mutableStateOf(ReceiverTrackingSettings(receiverId = ""))
     private var fastTrackingDeviceId by mutableStateOf<String?>(null)
     private var fastHistory by mutableStateOf(false)
     private var message by mutableStateOf("")
     private var audioLevel by mutableFloatStateOf(0f)
-    private var videoTrack by mutableStateOf<VideoTrack?>(null)
+    private var cameraTrack by mutableStateOf<VideoTrack?>(null)
+    private var screenTrack by mutableStateOf<VideoTrack?>(null)
     private var audioTrack by mutableStateOf<AudioTrack?>(null)
     private var room: Room? = null
     private var roomDeviceId: String? = null
-    private var renderer: TextureViewRenderer? = null
+    private var cameraRenderer: TextureViewRenderer? = null
+    private var screenRenderer: TextureViewRenderer? = null
+    private val initializedRenderers =
+        Collections.newSetFromMap(IdentityHashMap<TextureViewRenderer, Boolean>())
     private var snapshotPreview by mutableStateOf<Bitmap?>(null)
     private var videoRecordingState by mutableStateOf<LocalRecordingState>(
         LocalRecordingState.Idle,
@@ -106,10 +116,15 @@ class ReceiverActivity : ComponentActivity() {
     private var audioRecordingState by mutableStateOf<LocalRecordingState>(
         LocalRecordingState.Idle,
     )
+    private var screenRecordingState by mutableStateOf<LocalRecordingState>(
+        LocalRecordingState.Idle,
+    )
     private var videoRecorder: VideoMp4Recorder? = null
     private var audioRecorder: AudioM4aRecorder? = null
+    private var screenRecorder: VideoMp4Recorder? = null
     private var videoRecordingTimerJob: Job? = null
     private var audioRecordingTimerJob: Job? = null
+    private var screenRecordingTimerJob: Job? = null
     private var dataPlaneJob: Job? = null
     private var trackingLeaseJob: Job? = null
     private var roomEventsJob: Job? = null
@@ -166,7 +181,11 @@ class ReceiverActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && (fullscreenDeviceId != null || historyFullscreenActive)) {
+        if (hasFocus &&
+            (fullscreenDeviceId != null ||
+                screenFullscreenDeviceId != null ||
+                historyFullscreenActive)
+        ) {
             hideSystemBars()
         }
     }
@@ -187,6 +206,7 @@ class ReceiverActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (fullscreenDeviceId != null) closeFullscreenMap()
+        if (screenFullscreenDeviceId != null) closeScreenFullscreen()
         if (historyFullscreenActive) setHistoryFullscreen(false)
         disconnectMedia()
         dataPlaneJob?.cancel()
@@ -213,6 +233,25 @@ class ReceiverActivity : ComponentActivity() {
         }
         val fullscreenDevice = fullscreenDeviceId?.let { id ->
             devices.firstOrNull { it.device.id == id }
+        }
+        val screenFullscreenDevice = screenFullscreenDeviceId?.let { id ->
+            devices.firstOrNull { it.device.id == id }
+        }
+        if (screenFullscreenDevice != null) {
+            BackHandler(onBack = ::closeScreenFullscreen)
+            ScreenFullscreenScreen(
+                streaming = screenFullscreenDevice.status?.screenStreaming == true,
+                onExit = ::closeScreenFullscreen,
+                screenContent = {
+                    ScreenSurface(
+                        streaming = screenFullscreenDevice.status?.screenStreaming == true,
+                    )
+                },
+            )
+            return
+        }
+        if (screenFullscreenDeviceId != null) {
+            LaunchedEffect(screenFullscreenDeviceId) { closeScreenFullscreen() }
         }
         if (fullscreenDevice != null) {
             BackHandler(onBack = ::closeFullscreenMap)
@@ -353,6 +392,9 @@ class ReceiverActivity : ComponentActivity() {
                             if (selectedTab == DeviceTab.AUDIO && tab != DeviceTab.AUDIO) {
                                 stopAudioRecording()
                             }
+                            if (selectedTab == DeviceTab.SCREEN && tab != DeviceTab.SCREEN) {
+                                stopScreenRecording()
+                            }
                             selectedTab = tab
                         },
                         onBack = ::closeDetail,
@@ -374,12 +416,17 @@ class ReceiverActivity : ComponentActivity() {
                         onFullscreen = {
                             openFullscreenMap(selected.device.id)
                         },
+                        onScreenFullscreen = {
+                            openScreenFullscreen(selected.device.id)
+                        },
                         onOpenHistory = { historyDeviceId = selected.device.id },
                         onTakePhoto = { takeVideoSnapshot(selected) },
-                        videoTrackAvailable = videoTrack != null,
+                        videoTrackAvailable = cameraTrack != null,
                         audioTrackAvailable = audioTrack != null,
+                        screenTrackAvailable = screenTrack != null,
                         videoRecordingState = videoRecordingState,
                         audioRecordingState = audioRecordingState,
+                        screenRecordingState = screenRecordingState,
                         onVideoRecordingToggle = {
                             if (videoRecordingState.isActive) {
                                 stopVideoRecording()
@@ -394,11 +441,23 @@ class ReceiverActivity : ComponentActivity() {
                                 startAudioRecording(selected)
                             }
                         },
+                        onScreenRecordingToggle = {
+                            if (screenRecordingState.isActive) {
+                                stopScreenRecording()
+                            } else {
+                                startScreenRecording(selected)
+                            }
+                        },
                         snapshotPreview = snapshotPreview,
                         onSnapshotAnimationFinished = ::clearSnapshotAnimation,
                         videoContent = {
-                            VideoSurface(
+                            CameraSurface(
                                 streaming = selected.status?.cameraStreaming == true,
+                            )
+                        },
+                        screenContent = {
+                            ScreenSurface(
+                                streaming = selected.status?.screenStreaming == true,
                             )
                         },
                         modifier = Modifier.weight(1f),
@@ -412,34 +471,82 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun VideoSurface(streaming: Boolean) {
+    private fun CameraSurface(streaming: Boolean) {
+        var localRenderer by remember { mutableStateOf<TextureViewRenderer?>(null) }
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
                 TextureViewRenderer(context).also { view ->
-                    renderer = view
-                    room?.initVideoRenderer(view)
+                    localRenderer = view
+                    cameraRenderer = view
+                    room?.let(::initializeCameraRenderer)
                 }
             },
         )
-        LaunchedEffect(streaming, videoTrack) {
-            renderer?.let { view ->
-                videoTrack?.removeRenderer(view)
+        LaunchedEffect(streaming, cameraTrack, localRenderer) {
+            localRenderer?.let { view ->
+                cameraTrack?.removeRenderer(view)
                 if (streaming) {
-                    videoTrack?.addRenderer(view)
+                    cameraTrack?.addRenderer(view)
                 } else {
                     view.clearImage()
                 }
             }
         }
-        DisposableEffect(Unit) {
+        DisposableEffect(localRenderer) {
+            val view = localRenderer
             onDispose {
-                renderer?.let { view ->
-                    videoTrack?.removeRenderer(view)
+                view?.let {
+                    cameraTrack?.removeRenderer(view)
                     view.clearImage()
-                    view.release()
+                    releaseRenderer(view)
                 }
-                renderer = null
+                if (cameraRenderer === view) cameraRenderer = null
+            }
+        }
+    }
+
+    @Composable
+    private fun ScreenSurface(streaming: Boolean) {
+        var localRenderer by remember { mutableStateOf<TextureViewRenderer?>(null) }
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                TextureViewRenderer(context).also { view ->
+                    localRenderer = view
+                    screenRenderer = view
+                    room?.let(::initializeScreenRenderer)
+                    // LiveKit initialization can restore the default crop mode.
+                    view.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                    view.setMirror(false)
+                }
+            },
+            update = { view ->
+                localRenderer = view
+                screenRenderer = view
+                room?.let(::initializeScreenRenderer)
+                view.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                view.setMirror(false)
+            },
+        )
+        LaunchedEffect(streaming, screenTrack, localRenderer) {
+            localRenderer?.let { view ->
+                screenTrack?.removeRenderer(view)
+                if (streaming) {
+                    screenTrack?.addRenderer(view)
+                } else {
+                    view.clearImage()
+                }
+            }
+        }
+        DisposableEffect(localRenderer) {
+            val view = localRenderer
+            onDispose {
+                view?.let {
+                    screenTrack?.removeRenderer(view)
+                    view.clearImage()
+                }
+                // Keep the renderer initialized: Compose can reuse it in fullscreen.
             }
         }
     }
@@ -535,6 +642,9 @@ class ReceiverActivity : ComponentActivity() {
                 if (selected.status?.microphoneStreaming != true) {
                     stopAudioRecording()
                 }
+                if (selected.status?.screenStreaming != true) {
+                    stopScreenRecording()
+                }
             }
             reconcileMediaConnection()
         }
@@ -562,6 +672,7 @@ class ReceiverActivity : ComponentActivity() {
         selectedDeviceId = deviceId
         selectedTab = DeviceTab.POSITION
         message = ""
+        reconcileMediaConnection()
     }
 
     private fun closeDetail() {
@@ -633,7 +744,7 @@ class ReceiverActivity : ComponentActivity() {
             message = "Concedi l’accesso alle foto e premi nuovamente il pulsante."
             return
         }
-        val videoRenderer = renderer
+        val videoRenderer = cameraRenderer
         if (videoRenderer == null || !videoRenderer.isAvailable) {
             message = "Il fotogramma video non è ancora disponibile."
             return
@@ -673,7 +784,7 @@ class ReceiverActivity : ComponentActivity() {
 
     private fun startVideoRecording(device: MonitoredDevice) {
         if (videoRecordingState.isActive || !ensureLegacyStoragePermission()) return
-        val track = videoTrack
+        val track = cameraTrack
         if (track == null) {
             message = "La track video non è ancora disponibile."
             return
@@ -735,6 +846,73 @@ class ReceiverActivity : ComponentActivity() {
         videoRecorder = null
         videoRecordingState = LocalRecordingState.Idle
         showRecordingResult("Video", result)
+    }
+
+    private fun startScreenRecording(device: MonitoredDevice) {
+        if (screenRecordingState.isActive || !ensureLegacyStoragePermission()) return
+        val track = screenTrack
+        if (track == null) {
+            message = "La track dello schermo non è ancora disponibile."
+            return
+        }
+        screenRecordingState = LocalRecordingState.Starting
+        lateinit var recorder: VideoMp4Recorder
+        recorder = VideoMp4Recorder(
+            context = applicationContext,
+            deviceName = "Schermo_${device.displayName}",
+            recordingKind = RecordingKind.SCREEN,
+            onStarted = {
+                runOnUiThread {
+                    if (screenRecorder === recorder &&
+                        screenRecordingState is LocalRecordingState.Starting
+                    ) {
+                        val startedAt = SystemClock.elapsedRealtime()
+                        screenRecordingState = LocalRecordingState.Recording(startedAt)
+                        screenRecordingTimerJob = startRecordingTimer(
+                            startedAtElapsedMs = startedAt,
+                            update = { elapsed ->
+                                screenRecordingState =
+                                    LocalRecordingState.Recording(startedAt, elapsed)
+                            },
+                            stop = ::stopScreenRecording,
+                        )
+                    }
+                }
+            },
+            onFinished = { result ->
+                runOnUiThread { finishScreenRecording(recorder, result) }
+            },
+        )
+        screenRecorder = recorder
+        runCatching { recorder.start(track) }.onFailure {
+            screenRecorder = null
+            screenRecordingState = LocalRecordingState.Idle
+            message = it.message ?: "Avvio registrazione schermo non riuscito."
+        }
+    }
+
+    private fun stopScreenRecording() {
+        if (!screenRecordingState.isActive ||
+            screenRecordingState is LocalRecordingState.Finalizing
+        ) {
+            return
+        }
+        screenRecordingTimerJob?.cancel()
+        screenRecordingTimerJob = null
+        screenRecordingState = LocalRecordingState.Finalizing
+        screenRecorder?.stop()
+    }
+
+    private fun finishScreenRecording(
+        recorder: VideoMp4Recorder,
+        result: RecordingResult,
+    ) {
+        if (screenRecorder !== recorder) return
+        screenRecordingTimerJob?.cancel()
+        screenRecordingTimerJob = null
+        screenRecorder = null
+        screenRecordingState = LocalRecordingState.Idle
+        showRecordingResult("Schermo", result)
     }
 
     private fun startAudioRecording(device: MonitoredDevice) {
@@ -827,6 +1005,7 @@ class ReceiverActivity : ComponentActivity() {
     private fun stopAllRecordings() {
         stopVideoRecording()
         stopAudioRecording()
+        stopScreenRecording()
     }
 
     private fun showRecordingResult(label: String, result: RecordingResult) {
@@ -867,6 +1046,19 @@ class ReceiverActivity : ComponentActivity() {
         if (fullscreenDeviceId == null) return
         fullscreenDeviceId = null
         if (!historyFullscreenActive) exitImmersiveLandscape()
+    }
+
+    private fun openScreenFullscreen(deviceId: String) {
+        screenFullscreenDeviceId = deviceId
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.decorView.post(::hideSystemBars)
+    }
+
+    private fun closeScreenFullscreen() {
+        if (screenFullscreenDeviceId == null) return
+        screenFullscreenDeviceId = null
+        exitImmersiveLandscape()
     }
 
     private fun setHistoryFullscreen(enabled: Boolean) {
@@ -949,6 +1141,7 @@ class ReceiverActivity : ComponentActivity() {
             runCatching {
                 repository!!.sendCommand(deviceId, CommandType.STOP_VIDEO)
                 repository!!.sendCommand(deviceId, CommandType.STOP_AUDIO)
+                repository!!.sendCommand(deviceId, CommandType.STOP_SCREEN)
             }.onFailure {
                 requestDataPlaneRecovery(it, "Chiusura stream non riuscita.")
             }
@@ -959,6 +1152,7 @@ class ReceiverActivity : ComponentActivity() {
         when (type) {
             CommandType.STOP_VIDEO -> stopVideoRecording()
             CommandType.STOP_AUDIO -> stopAudioRecording()
+            CommandType.STOP_SCREEN -> stopScreenRecording()
             else -> Unit
         }
         lifecycleScope.launch {
@@ -976,7 +1170,11 @@ class ReceiverActivity : ComponentActivity() {
             devices.firstOrNull { it.device.id == id }
         }
         val shouldConnect = selected?.status?.let {
-            MediaConnectionPolicy.shouldConnect(it.cameraStreaming, it.microphoneStreaming)
+            MediaConnectionPolicy.shouldConnect(
+                it.cameraStreaming,
+                it.microphoneStreaming,
+                it.screenStreaming,
+            )
         } == true
         when {
             shouldConnect && roomDeviceId != selected?.device?.id ->
@@ -1011,21 +1209,29 @@ class ReceiverActivity : ComponentActivity() {
                 val credentials = repository!!.liveKitToken(deviceId, "subscribe")
                 room = LiveKit.create(applicationContext).also { newRoom ->
                     roomDeviceId = deviceId
-                    renderer?.let(newRoom::initVideoRenderer)
+                    initializeCameraRenderer(newRoom)
+                    initializeScreenRenderer(newRoom)
                     roomEventsJob = lifecycleScope.launch {
                         newRoom.events.collect { event ->
                             Log.d(TAG, "LiveKit room event: ${event::class.simpleName}")
                             when {
                                 event is RoomEvent.TrackSubscribed && event.track is VideoTrack -> {
-                                    bindVideoTrack(event.track as VideoTrack)
+                                    bindVideoTrack(
+                                        event.track as VideoTrack,
+                                        event.publication.source,
+                                    )
                                 }
                                 event is RoomEvent.TrackSubscribed && event.track is AudioTrack -> {
                                     bindAudioTrack(event.track as AudioTrack)
                                 }
                                 event is RoomEvent.TrackUnsubscribed &&
                                     event.track is VideoTrack -> {
-                                    stopVideoRecording()
-                                    if (videoTrack === event.track) videoTrack = null
+                                    val source = if (screenTrack === event.track) {
+                                        Track.Source.SCREEN_SHARE
+                                    } else {
+                                        Track.Source.CAMERA
+                                    }
+                                    unbindVideoTrack(event.track as VideoTrack, source)
                                 }
                                 event is RoomEvent.TrackUnsubscribed &&
                                     event.track is AudioTrack -> {
@@ -1034,12 +1240,13 @@ class ReceiverActivity : ComponentActivity() {
                                 }
                                 event is RoomEvent.TrackMuted &&
                                     event.publication.kind == Track.Kind.VIDEO -> {
-                                    stopVideoRecording()
-                                    renderer?.clearImage()
+                                    clearVideoSource(event.publication.source)
                                 }
                                 event is RoomEvent.TrackUnmuted &&
                                     event.publication.kind == Track.Kind.VIDEO -> {
-                                    (event.publication.track as? VideoTrack)?.let(::bindVideoTrack)
+                                    (event.publication.track as? VideoTrack)?.let {
+                                        bindVideoTrack(it, event.publication.source)
+                                    }
                                 }
                                 event is RoomEvent.TrackMuted &&
                                     event.publication.kind == Track.Kind.AUDIO -> {
@@ -1052,7 +1259,8 @@ class ReceiverActivity : ComponentActivity() {
                                 event is RoomEvent.Disconnected -> {
                                     stopAllRecordings()
                                     audioLevel = 0f
-                                    renderer?.clearImage()
+                                    cameraRenderer?.clearImage()
+                                    screenRenderer?.clearImage()
                                     if (room === newRoom) {
                                         room = null
                                         roomDeviceId = null
@@ -1092,15 +1300,74 @@ class ReceiverActivity : ComponentActivity() {
         }
     }
 
-    private fun bindVideoTrack(track: VideoTrack) {
-        if (videoTrack !== track && videoRecordingState.isActive) {
+    private fun bindVideoTrack(track: VideoTrack, source: Track.Source) {
+        if (source == Track.Source.SCREEN_SHARE) {
+            if (screenTrack !== track && screenRecordingState.isActive) stopScreenRecording()
+            screenRenderer?.let { view ->
+                screenTrack?.removeRenderer(view)
+                track.addRenderer(view)
+            }
+            screenTrack = track
+            Log.i(TAG, "Bound SCREEN_SHARE track")
+        } else {
+            if (cameraTrack !== track && videoRecordingState.isActive) stopVideoRecording()
+            cameraRenderer?.let { view ->
+                cameraTrack?.removeRenderer(view)
+                track.addRenderer(view)
+            }
+            cameraTrack = track
+            Log.i(TAG, "Bound CAMERA track")
+        }
+    }
+
+    private fun initializeCameraRenderer(activeRoom: Room) {
+        val view = cameraRenderer ?: return
+        initializeRenderer(activeRoom, view)
+        Log.d(TAG, "Camera renderer initialized")
+    }
+
+    private fun initializeScreenRenderer(activeRoom: Room) {
+        val view = screenRenderer ?: return
+        initializeRenderer(activeRoom, view)
+        view.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+        view.setMirror(false)
+        Log.d(TAG, "Screen renderer initialized")
+    }
+
+    private fun initializeRenderer(activeRoom: Room, view: TextureViewRenderer) {
+        if (!initializedRenderers.add(view)) return
+        try {
+            activeRoom.initVideoRenderer(view)
+        } catch (error: Throwable) {
+            initializedRenderers.remove(view)
+            throw error
+        }
+    }
+
+    private fun releaseRenderer(view: TextureViewRenderer) {
+        if (initializedRenderers.remove(view)) view.release()
+    }
+
+    private fun unbindVideoTrack(track: VideoTrack, source: Track.Source) {
+        if (source == Track.Source.SCREEN_SHARE) {
+            stopScreenRecording()
+            if (screenTrack === track) screenTrack = null
+            screenRenderer?.clearImage()
+        } else {
             stopVideoRecording()
+            if (cameraTrack === track) cameraTrack = null
+            cameraRenderer?.clearImage()
         }
-        renderer?.let { view ->
-            videoTrack?.removeRenderer(view)
-            track.addRenderer(view)
+    }
+
+    private fun clearVideoSource(source: Track.Source) {
+        if (source == Track.Source.SCREEN_SHARE) {
+            stopScreenRecording()
+            screenRenderer?.clearImage()
+        } else {
+            stopVideoRecording()
+            cameraRenderer?.clearImage()
         }
-        videoTrack = track
     }
 
     private fun bindAudioTrack(track: AudioTrack) {
@@ -1113,7 +1380,8 @@ class ReceiverActivity : ComponentActivity() {
     private fun disconnectMedia(cancelConnection: Boolean = true) {
         stopAllRecordings()
         if (cancelConnection) connectionJob?.cancel()
-        renderer?.let { view -> videoTrack?.removeRenderer(view) }
+        cameraRenderer?.let { view -> cameraTrack?.removeRenderer(view) }
+        screenRenderer?.let { view -> screenTrack?.removeRenderer(view) }
         roomEventsJob?.cancel()
         roomEventsJob = null
         audioMeterJob?.cancel()
@@ -1121,10 +1389,13 @@ class ReceiverActivity : ComponentActivity() {
         room?.disconnect()
         room = null
         roomDeviceId = null
-        videoTrack = null
+        cameraTrack = null
+        screenTrack = null
         audioTrack = null
         audioLevel = 0f
-        renderer?.clearImage()
+        cameraRenderer?.clearImage()
+        screenRenderer?.clearImage()
+        initializedRenderers.toList().forEach(::releaseRenderer)
     }
 
     private fun requestDataPlaneRecovery(error: Throwable, fallbackMessage: String) {

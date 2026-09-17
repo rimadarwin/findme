@@ -23,6 +23,14 @@ class DeviceIdentity(context: Context) {
         get() = preferences.getString(KEY_PROVISIONED_RECEIVER, null)
         set(value) = preferences.edit().putString(KEY_PROVISIONED_RECEIVER, value).apply()
 
+    var screenProjectionEverAuthorized: Boolean
+        get() = preferences.getBoolean(KEY_SCREEN_PROJECTION_AUTHORIZED, false)
+        set(value) = preferences.edit().putBoolean(KEY_SCREEN_PROJECTION_AUTHORIZED, value).apply()
+
+    var screenProjectionOnboardingAttempted: Boolean
+        get() = preferences.getBoolean(KEY_SCREEN_PROJECTION_ONBOARDING, false)
+        set(value) = preferences.edit().putBoolean(KEY_SCREEN_PROJECTION_ONBOARDING, value).apply()
+
     fun cachedTrackingState(): TrackingRuntimeState? {
         val receiverId = preferences.getString(KEY_TRACKING_RECEIVER_ID, null) ?: return null
         return TrackingRuntimeState(
@@ -63,6 +71,8 @@ class DeviceIdentity(context: Context) {
         const val KEY_NAME = "device_name"
         const val KEY_MONITORING = "monitoring_enabled"
         const val KEY_PROVISIONED_RECEIVER = "provisioned_receiver_code"
+        const val KEY_SCREEN_PROJECTION_AUTHORIZED = "screen_projection_ever_authorized"
+        const val KEY_SCREEN_PROJECTION_ONBOARDING = "screen_projection_onboarding_attempted"
         const val KEY_TRACKING_RECEIVER_ID = "tracking_receiver_id"
         const val KEY_TRACKING_OFFLINE = "tracking_offline_sec"
         const val KEY_TRACKING_ONLINE = "tracking_online_sec"

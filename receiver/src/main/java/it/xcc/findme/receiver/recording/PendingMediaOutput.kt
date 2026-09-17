@@ -54,12 +54,16 @@ class PendingMediaOutput private constructor(
         ): PendingMediaOutput {
             val fileName = RecordingFileNames.create(kind, deviceName)
             val directory = when (kind) {
-                RecordingKind.VIDEO -> Environment.DIRECTORY_MOVIES
+                RecordingKind.VIDEO,
+                RecordingKind.SCREEN,
+                -> Environment.DIRECTORY_MOVIES
                 RecordingKind.AUDIO -> Environment.DIRECTORY_MUSIC
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val collection = when (kind) {
-                    RecordingKind.VIDEO -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    RecordingKind.VIDEO,
+                    RecordingKind.SCREEN,
+                    -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                     RecordingKind.AUDIO -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
                 }
                 val uri = checkNotNull(

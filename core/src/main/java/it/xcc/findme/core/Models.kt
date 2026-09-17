@@ -33,6 +33,10 @@ data class DeviceStatus(
     @EncodeDefault
     @SerialName("microphone_streaming") val microphoneStreaming: Boolean = false,
     @EncodeDefault
+    @SerialName("screen_share_ready") val screenShareReady: Boolean = false,
+    @EncodeDefault
+    @SerialName("screen_streaming") val screenStreaming: Boolean = false,
+    @EncodeDefault
     @SerialName("camera_facing") val cameraFacing: String = "front",
     @SerialName("last_heartbeat") val lastHeartbeat: String? = null,
 )
@@ -53,6 +57,8 @@ enum class CommandType {
     @SerialName("start_video") START_VIDEO,
     @SerialName("stop_video") STOP_VIDEO,
     @SerialName("switch_camera") SWITCH_CAMERA,
+    @SerialName("start_screen") START_SCREEN,
+    @SerialName("stop_screen") STOP_SCREEN,
     @SerialName("start_monitoring") START_MONITORING,
     @SerialName("stop_monitoring") STOP_MONITORING,
 }

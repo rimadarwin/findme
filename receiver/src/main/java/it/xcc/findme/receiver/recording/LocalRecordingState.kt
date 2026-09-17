@@ -5,6 +5,7 @@ enum class RecordingKind(
     val mimeType: String,
 ) {
     VIDEO("mp4", "video/mp4"),
+    SCREEN("mp4", "video/mp4"),
     AUDIO("m4a", "audio/mp4"),
 }
 
