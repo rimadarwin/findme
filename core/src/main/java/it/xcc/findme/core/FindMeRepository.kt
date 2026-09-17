@@ -33,24 +33,49 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 
 class FindMeRepository(
-    private val client: SupabaseClient = createClient(),
+    private val client: SupabaseClient = processClient,
 ) {
     val isAuthenticated: Boolean get() = client.auth.currentUserOrNull() != null
     val currentUserId: String? get() = client.auth.currentUserOrNull()?.id
 
-    suspend fun ensureAuthenticated() {
-        client.auth.awaitInitialization()
-        if (!isAuthenticated) client.auth.signInAnonymously()
+    suspend fun ensureAuthenticated(forceRefresh: Boolean = false) {
+        processAuthenticationMutex.withLock {
+            val nowNanos = System.nanoTime()
+            val refreshDue = lastSessionRefreshAtNanos == 0L ||
+                (nowNanos - lastSessionRefreshAtNanos) / 1_000_000L >=
+                ConnectionRecoveryPolicy.SESSION_REFRESH_INTERVAL_MS
+            if (!forceRefresh && !refreshDue) return@withLock
+
+            withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
+                client.auth.awaitInitialization()
+                if (isAuthenticated) {
+                    client.auth.refreshCurrentSession()
+                } else {
+                    client.auth.signInAnonymously()
+                }
+            }
+            lastSessionRefreshAtNanos = System.nanoTime()
+        }
+    }
+
+    suspend fun shutdownRealtime() {
+        runCatching { client.realtime.removeAllChannels() }
+        client.realtime.disconnect()
     }
 
     suspend fun registerDevice(id: String, name: String, role: DeviceRole) {
+        ensureAuthenticated()
         val ownerId = requireNotNull(currentUserId) { "Utente non autenticato" }
         client.from("devices").upsert(Device(id, ownerId, name, role))
     }
 
     suspend fun registerReceiver(id: String, name: String) {
+        ensureAuthenticated()
         val ownerId = requireNotNull(currentUserId) { "Utente non autenticato" }
         client.from("receivers").upsert(ReceiverRegistration(id, ownerId, name))
     }
@@ -69,25 +94,33 @@ class FindMeRepository(
         receiverId: String,
         settings: TrackingSettingsUpdate,
     ) {
+        ensureAuthenticated()
         client.from("receivers").update(settings) {
             filter { eq("device_id", receiverId) }
         }
     }
 
-    suspend fun pairWithReceiver(transmitterDeviceId: String, pairingCode: String): PairDeviceResponse =
-        client.functions.invoke(
+    suspend fun pairWithReceiver(
+        transmitterDeviceId: String,
+        pairingCode: String,
+    ): PairDeviceResponse {
+        ensureAuthenticated()
+        return client.functions.invoke(
             function = "pair-device",
             body = PairDeviceRequest(transmitterDeviceId, pairingCode.trim().uppercase()),
         ).body()
+    }
 
     suspend fun receiverAccess(
         transmitterDeviceId: String,
         answer: String? = null,
-    ): ReceiverAccessResponse =
-        client.functions.invoke(
+    ): ReceiverAccessResponse {
+        ensureAuthenticated()
+        return client.functions.invoke(
             function = "receiver-access",
             body = ReceiverAccessRequest(transmitterDeviceId, answer),
         ).body()
+    }
 
     fun monitoredDevices(): Flow<List<MonitoredDevice>> {
         return client.from("receiver_transmitters")
@@ -120,6 +153,7 @@ class FindMeRepository(
         transmitterId: String,
         alias: String,
     ) {
+        ensureAuthenticated()
         val normalized = alias.trim().takeIf { it.isNotEmpty() }
         client.from("receiver_transmitters").update(
             { set("alias", normalized) },
@@ -151,6 +185,7 @@ class FindMeRepository(
         until: Instant?,
         liveHistory: Boolean,
     ) {
+        ensureAuthenticated()
         client.from("receiver_transmitters").update(
             {
                 set("live_tracking_until", until?.toString())
@@ -170,6 +205,7 @@ class FindMeRepository(
         center: DeviceLocation?,
         radiusM: Int?,
     ) {
+        ensureAuthenticated()
         client.from("receiver_transmitters").update(
             {
                 set("geofence_enabled", center != null && radiusM != null)
@@ -188,6 +224,7 @@ class FindMeRepository(
     }
 
     suspend fun registerReceiverPushToken(receiverId: String, token: String) {
+        ensureAuthenticated()
         client.from("receiver_push_tokens").upsert(
             ReceiverPushToken(
                 token = token,
@@ -198,6 +235,7 @@ class FindMeRepository(
     }
 
     suspend fun checkGeofence(location: DeviceLocation) {
+        ensureAuthenticated()
         client.functions.invoke(
             function = "geofence-alert",
             body = GeofenceCheckRequest(
@@ -226,20 +264,24 @@ class FindMeRepository(
         }
     }
 
-    private suspend fun fetchPendingCommands(deviceId: String): List<DeviceCommand> =
-        client.from("device_commands").select {
+    private suspend fun fetchPendingCommands(deviceId: String): List<DeviceCommand> {
+        ensureAuthenticated()
+        return client.from("device_commands").select {
             filter {
                 eq("device_id", deviceId)
                 eq("status", "pending")
             }
             order("created_at", Order.ASCENDING)
         }.decodeList()
+    }
 
     suspend fun sendCommand(deviceId: String, command: CommandType) {
+        ensureAuthenticated()
         client.from("device_commands").insert(DeviceCommand(deviceId = deviceId, command = command))
     }
 
     suspend fun acknowledgeCommand(commandId: Long) {
+        ensureAuthenticated()
         client.from("device_commands").update(
             {
                 set("status", "applied")
@@ -251,14 +293,17 @@ class FindMeRepository(
     }
 
     suspend fun heartbeat(status: DeviceStatus) {
+        ensureAuthenticated()
         client.from("device_status").upsert(status)
     }
 
     suspend fun updateCurrentLocation(location: DeviceLocation) {
+        ensureAuthenticated()
         client.from("device_locations").upsert(location)
     }
 
     suspend fun appendLocationHistory(location: DeviceLocation) {
+        ensureAuthenticated()
         client.from("location_history").insert(location)
     }
 
@@ -269,6 +314,7 @@ class FindMeRepository(
         offset: Long,
         limit: Long = 50,
     ): LocationHistoryPage {
+        ensureAuthenticated()
         val rows = client.from("location_history").select {
             filter {
                 eq("device_id", deviceId)
@@ -289,8 +335,9 @@ class FindMeRepository(
         from: Instant,
         to: Instant,
         maxPoints: Int = 1500,
-    ): List<LocationHistoryPoint> =
-        client.postgrest.rpc(
+    ): List<LocationHistoryPoint> {
+        ensureAuthenticated()
+        return client.postgrest.rpc(
             function = "get_location_route",
             parameters = buildJsonObject {
                 put("target_device_id", deviceId)
@@ -299,15 +346,23 @@ class FindMeRepository(
                 put("max_points", maxPoints)
             },
         ).decodeList()
+    }
 
-    suspend fun liveKitToken(deviceId: String, mode: String): LiveKitTokenResponse =
-        client.functions.invoke(
+    suspend fun liveKitToken(deviceId: String, mode: String): LiveKitTokenResponse {
+        ensureAuthenticated()
+        return client.functions.invoke(
             function = "livekit-token",
             body = LiveKitTokenRequest(deviceId, mode),
         ).body()
+    }
 
     companion object {
-        fun createClient(): SupabaseClient {
+        // A single client and mutex prevent concurrent refresh-token rotation in one app process.
+        private val processAuthenticationMutex = Mutex()
+        private var lastSessionRefreshAtNanos = 0L
+        private val processClient: SupabaseClient by lazy { createClient() }
+
+        private fun createClient(): SupabaseClient {
             check(AppConfig.supabaseUrl.isNotBlank()) { "SUPABASE_URL non configurato" }
             check(AppConfig.supabasePublishableKey.isNotBlank()) {
                 "SUPABASE_PUBLISHABLE_KEY non configurata"
@@ -316,7 +371,11 @@ class FindMeRepository(
                 supabaseUrl = AppConfig.supabaseUrl,
                 supabaseKey = AppConfig.supabasePublishableKey,
             ) {
-                install(Auth)
+                install(Auth) {
+                    // Foreground lifecycle callbacks are unreliable for an always-on service.
+                    alwaysAutoRefresh = false
+                    enableLifecycleCallbacks = false
+                }
                 install(Postgrest)
                 install(Realtime)
                 install(Functions)

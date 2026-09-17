@@ -134,8 +134,11 @@ provisioning.
 
 ## 5. Impostazioni del telefono
 
-- disabilitare ottimizzazione batteria per FindMe Trasmettitore;
+- attivare lo switch **Nessuna restrizione batteria** in FindMe Trasmettitore;
 - sui produttori che lo prevedono, abilitare l'avvio automatico;
+- su Xiaomi/MIUI/HyperOS aprire anche le informazioni app e scegliere
+  **Risparmio batteria > Nessuna restrizione**: la whitelist Android standard
+  non disabilita sempre il gestore energetico proprietario;
 - mantenere rete dati/Wi-Fi disponibile;
 - concedere camera, microfono e posizione;
 - concedere posizione “Sempre” se si vuole tracciare anche fuori dalla sessione.
@@ -149,12 +152,25 @@ secondi). Il ricevitore considera offline il dispositivo dopo due intervalli.
 La resilienza è composta da:
 
 - `START_STICKY` per la ricreazione del servizio;
-- riconnessione Supabase ogni 5 secondi;
+- un solo client Supabase per processo, così attività, servizio e FCM non
+  competono nella rotazione del refresh token;
+- refresh esplicito della sessione e rinnovo dei canali ogni 15 minuti;
+- timeout di 20 secondi per sessione, heartbeat e upload posizione;
+- retry esponenziale da 5 a 60 secondi, anticipato quando Android segnala il
+  ritorno della rete;
+- watchdog che ricrea tutti i flussi se heartbeat, autenticazione o Realtime si
+  bloccano;
+- retry persistente anche sul ricevitore e messaggi tecnici rimossi dopo il
+  recupero;
 - connessione LiveKit solo quando audio o video sono richiesti;
 - cache locale delle ultime impostazioni tracking valide;
 - lease rapido di 90 secondi, rinnovato ogni 20 secondi e con fallback offline;
 - `BootReceiver` quando l'app è Device Owner;
 - stato online/offline derivato dal timestamp Supabase.
+
+Una perdita reale di Internet rende inevitabilmente il dispositivo
+temporaneamente offline. Al ripristino della rete non è necessario riaprire
+l’app né disattivare e riattivare il monitoraggio.
 
 FCM non è necessario per controllare camera e microfono sui telefoni Device
 Owner e non può aggirare i vincoli Android sui telefoni standard. È invece

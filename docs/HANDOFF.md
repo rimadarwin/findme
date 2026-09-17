@@ -55,6 +55,12 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - registrazione locale indipendente di video H.264/MP4 in `Movies/FindMe` e
   audio AAC/M4A in `Music/FindMe`, con REC manuale, timer, limite 30 minuti e
   finalizzazione automatica su uscita dal tab, stop stream o disconnessione.
+- resilienza di rete end-to-end: client Supabase unico per processo, refresh
+  sessione esplicito, rinnovo periodico Realtime, watchdog heartbeat, retry
+  esponenziale e riavvio immediato del piano dati al ritorno della rete.
+- esenzione dall’ottimizzazione batteria richiedibile dalla dashboard del
+  trasmettitore; sui firmware Xiaomi resta necessaria anche l’impostazione
+  proprietaria “Nessuna restrizione”.
 
 Le migrazioni `202609160005_media_state.sql`,
 `202609170001_receiver_device_alias.sql` e

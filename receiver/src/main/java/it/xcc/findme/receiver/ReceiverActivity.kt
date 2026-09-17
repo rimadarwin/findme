@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -48,6 +50,7 @@ import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoTrack
 import it.xcc.findme.core.AppConfig
 import it.xcc.findme.core.CommandType
+import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
 import it.xcc.findme.core.DeviceRole
 import it.xcc.findme.core.FindMeRepository
@@ -63,12 +66,16 @@ import it.xcc.findme.receiver.recording.RecordingResult
 import it.xcc.findme.receiver.recording.VideoMp4Recorder
 import java.time.Instant
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class ReceiverActivity : ComponentActivity() {
     private var repository: FindMeRepository? = null
@@ -103,30 +110,47 @@ class ReceiverActivity : ComponentActivity() {
     private var audioRecorder: AudioM4aRecorder? = null
     private var videoRecordingTimerJob: Job? = null
     private var audioRecordingTimerJob: Job? = null
-    private var deviceJob: Job? = null
-    private var profileJob: Job? = null
-    private var settingsJob: Job? = null
+    private var dataPlaneJob: Job? = null
     private var trackingLeaseJob: Job? = null
     private var roomEventsJob: Job? = null
     private var audioMeterJob: Job? = null
     private var connectionJob: Job? = null
     private var isForeground = false
     private var pendingNotificationDeviceId: String? = null
+    private var pushNotificationsInitialized = false
+    private var onlineClockTick by mutableStateOf(System.currentTimeMillis())
+    private lateinit var connectivityManager: ConnectivityManager
+    private val recoverySignals = Channel<Throwable>(Channel.CONFLATED)
+    @Volatile
+    private var networkWasLost = false
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onLost(network: Network) {
+            networkWasLost = true
+            Log.w(TAG, "Receiver network unavailable; automatic recovery armed")
+        }
+
+        override fun onAvailable(network: Network) {
+            if (networkWasLost) {
+                networkWasLost = false
+                recoverySignals.trySend(DataPlaneRestart("network restored"))
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         identity = DeviceIdentity(this)
+        connectivityManager = getSystemService(ConnectivityManager::class.java)
+        connectivityManager.registerDefaultNetworkCallback(networkCallback)
         pendingNotificationDeviceId =
             intent.getStringExtra(FindMeMessagingService.EXTRA_DEVICE_ID)
-        if (AppConfig.isConfigured) {
-            repository = runCatching { FindMeRepository() }.getOrNull()
-        }
         setContent {
             FindMeReceiverTheme {
                 ReceiverApp()
             }
         }
-        initializeDevice()
+        if (AppConfig.isConfigured) initializeDevice()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -165,15 +189,22 @@ class ReceiverActivity : ComponentActivity() {
         if (fullscreenDeviceId != null) closeFullscreenMap()
         if (historyFullscreenActive) setHistoryFullscreen(false)
         disconnectMedia()
-        deviceJob?.cancel()
-        profileJob?.cancel()
-        settingsJob?.cancel()
+        dataPlaneJob?.cancel()
         trackingLeaseJob?.cancel()
+        runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
         super.onDestroy()
     }
 
     @Composable
     private fun ReceiverApp() {
+        LaunchedEffect(Unit) {
+            while (isActive) {
+                onlineClockTick = System.currentTimeMillis()
+                delay(ONLINE_CLOCK_INTERVAL_MS)
+            }
+        }
+        @Suppress("UNUSED_VARIABLE")
+        val refreshOnlineState = onlineClockTick
         val selected = selectedDeviceId?.let { id ->
             devices.firstOrNull { it.device.id == id }
         }
@@ -414,69 +445,98 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun initializeDevice() {
-        lifecycleScope.launch {
-            runCatching {
-                repository!!.ensureAuthenticated()
-                repository!!.registerDevice(identity.id, identity.name, DeviceRole.RECEIVER)
-                repository!!.registerReceiver(identity.id, identity.name)
-            }.onSuccess {
-                ready = true
-                observeReceiverProfile()
-                observeTrackingSettings()
-                observeDevices()
-                initializePushNotifications()
-            }.onFailure {
-                message = it.message ?: "Inizializzazione non riuscita."
-            }
-        }
-    }
-
-    private fun observeReceiverProfile() {
-        profileJob?.cancel()
-        profileJob = lifecycleScope.launch {
-            repository!!.receiverProfile(identity.id).collect { receiverProfile = it }
-        }
-    }
-
-    private fun observeTrackingSettings() {
-        settingsJob?.cancel()
-        settingsJob = lifecycleScope.launch {
-            repository!!.receiverTrackingSettings(identity.id).collect { settings ->
-                if (settings != null) trackingSettings = settings
-            }
-        }
-    }
-
-    private fun observeDevices() {
-        deviceJob?.cancel()
-        deviceJob = lifecycleScope.launch {
-            runCatching {
-                repository!!.monitoredDevices().collect { rows ->
-                    devices = rows
-                    pendingNotificationDeviceId?.let { pendingId ->
-                        if (rows.any { it.device.id == pendingId }) {
-                            openDetail(pendingId)
-                            pendingNotificationDeviceId = null
-                        }
+        dataPlaneJob?.cancel()
+        dataPlaneJob = lifecycleScope.launch {
+            var consecutiveFailures = 0
+            while (isActive) {
+                val activeRepository = FindMeRepository()
+                var retryImmediately = false
+                repository = activeRepository
+                try {
+                    activeRepository.ensureAuthenticated(forceRefresh = true)
+                    activeRepository.registerDevice(
+                        identity.id,
+                        identity.name,
+                        DeviceRole.RECEIVER,
+                    )
+                    activeRepository.registerReceiver(identity.id, identity.name)
+                    consecutiveFailures = 0
+                    message = ""
+                    ready = true
+                    Log.i(TAG, "Receiver data plane authenticated and healthy")
+                    if (!pushNotificationsInitialized) {
+                        pushNotificationsInitialized = true
+                        initializePushNotifications()
                     }
-                    val selectedId = selectedDeviceId
-                    if (selectedId != null && rows.none { it.device.id == selectedId }) {
-                        closeDetail()
-                    } else {
-                        rows.firstOrNull { it.device.id == selectedId }?.let { selected ->
-                            if (selected.status?.cameraStreaming != true) {
-                                stopVideoRecording()
-                            }
-                            if (selected.status?.microphoneStreaming != true) {
-                                stopAudioRecording()
+                    coroutineScope {
+                        launch {
+                            activeRepository.receiverProfile(identity.id).collect {
+                                receiverProfile = it
                             }
                         }
-                        reconcileMediaConnection()
+                        launch {
+                            activeRepository.receiverTrackingSettings(identity.id)
+                                .collect { settings ->
+                                    if (settings != null) trackingSettings = settings
+                                }
+                        }
+                        launch {
+                            activeRepository.monitoredDevices().collect(::handleDeviceRows)
+                        }
+                        launch {
+                            delay(RECEIVER_CHANNEL_RENEWAL_INTERVAL_MS)
+                            activeRepository.ensureAuthenticated(forceRefresh = true)
+                            throw DataPlaneRestart("periodic authenticated channel renewal")
+                        }
+                        launch { throw recoverySignals.receive() }
                     }
+                } catch (error: CancellationException) {
+                    if (!isActive) throw error
+                    consecutiveFailures++
+                    Log.e(TAG, "Receiver data plane cancelled unexpectedly", error)
+                } catch (restart: DataPlaneRestart) {
+                    retryImmediately = true
+                    Log.i(TAG, "Receiver data plane restart requested: ${restart.message}")
+                } catch (error: Throwable) {
+                    consecutiveFailures++
+                    Log.e(TAG, "Receiver data plane failed", error)
+                    message = "Connessione temporaneamente assente. Riconnessione automatica in corso…"
+                } finally {
+                    runCatching { activeRepository.shutdownRealtime() }
                 }
-            }.onFailure {
-                message = it.message ?: "Errore aggiornamento dispositivi."
+                if (!isActive) break
+                if (!retryImmediately) {
+                    val retryDelay = ConnectionRecoveryPolicy.retryDelayMs(consecutiveFailures)
+                    withTimeoutOrNull(retryDelay) { recoverySignals.receive() }
+                }
             }
+        }
+    }
+
+    private fun handleDeviceRows(rows: List<MonitoredDevice>) {
+        devices = rows
+        if (message.startsWith("Connessione temporaneamente assente")) {
+            message = ""
+        }
+        pendingNotificationDeviceId?.let { pendingId ->
+            if (rows.any { it.device.id == pendingId }) {
+                openDetail(pendingId)
+                pendingNotificationDeviceId = null
+            }
+        }
+        val selectedId = selectedDeviceId
+        if (selectedId != null && rows.none { it.device.id == selectedId }) {
+            closeDetail()
+        } else {
+            rows.firstOrNull { it.device.id == selectedId }?.let { selected ->
+                if (selected.status?.cameraStreaming != true) {
+                    stopVideoRecording()
+                }
+                if (selected.status?.microphoneStreaming != true) {
+                    stopAudioRecording()
+                }
+            }
+            reconcileMediaConnection()
         }
     }
 
@@ -536,7 +596,7 @@ class ReceiverActivity : ComponentActivity() {
                 repository!!.updateReceiverTrackingSettings(identity.id, update)
             }.onFailure {
                 trackingSettings = previous
-                message = it.message ?: "Salvataggio impostazioni non riuscito."
+                requestDataPlaneRecovery(it, "Salvataggio impostazioni non riuscito.")
             }
         }
     }
@@ -558,7 +618,7 @@ class ReceiverActivity : ComponentActivity() {
             }.onSuccess {
                 message = ""
             }.onFailure {
-                message = it.message ?: "Configurazione avviso area non riuscita."
+                requestDataPlaneRecovery(it, "Configurazione avviso area non riuscita.")
             }
         }
     }
@@ -859,7 +919,7 @@ class ReceiverActivity : ComponentActivity() {
                     liveHistory = fastHistory,
                 )
             }.onFailure {
-                message = it.message ?: "Aggiornamento rapido non riuscito."
+                requestDataPlaneRecovery(it, "Aggiornamento rapido non riuscito.")
             }
         }
     }
@@ -890,7 +950,7 @@ class ReceiverActivity : ComponentActivity() {
                 repository!!.sendCommand(deviceId, CommandType.STOP_VIDEO)
                 repository!!.sendCommand(deviceId, CommandType.STOP_AUDIO)
             }.onFailure {
-                message = it.message ?: "Chiusura stream non riuscita."
+                requestDataPlaneRecovery(it, "Chiusura stream non riuscita.")
             }
         }
     }
@@ -903,7 +963,7 @@ class ReceiverActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             runCatching { repository!!.sendCommand(device.device.id, type) }
-                .onFailure { message = it.message ?: "Invio comando non riuscito." }
+                .onFailure { requestDataPlaneRecovery(it, "Invio comando non riuscito.") }
         }
     }
 
@@ -938,7 +998,7 @@ class ReceiverActivity : ComponentActivity() {
             }.onSuccess {
                 message = ""
             }.onFailure {
-                message = it.message ?: "Salvataggio nome non riuscito."
+                requestDataPlaneRecovery(it, "Salvataggio nome non riuscito.")
             }
         }
     }
@@ -1021,6 +1081,7 @@ class ReceiverActivity : ComponentActivity() {
             }.onFailure {
                 Log.e(TAG, "LiveKit connection failed for device $deviceId", it)
                 message = "Connessione multimediale non riuscita."
+                recoverySignals.trySend(it)
                 room = null
                 roomDeviceId = null
                 lifecycleScope.launch {
@@ -1066,11 +1127,21 @@ class ReceiverActivity : ComponentActivity() {
         renderer?.clearImage()
     }
 
+    private fun requestDataPlaneRecovery(error: Throwable, fallbackMessage: String) {
+        Log.e(TAG, fallbackMessage, error)
+        message = fallbackMessage
+        recoverySignals.trySend(error)
+    }
+
     private companion object {
         const val TAG = "FindMeReceiver"
         const val AUDIO_METER_INTERVAL_MS = 100L
         const val MEDIA_RECONNECT_DELAY_MS = 2_000L
         const val TRACKING_LEASE_DURATION_SEC = 90L
         const val TRACKING_LEASE_RENEW_INTERVAL_MS = 20_000L
+        const val RECEIVER_CHANNEL_RENEWAL_INTERVAL_MS = 15 * 60 * 1_000L
+        const val ONLINE_CLOCK_INTERVAL_MS = 10_000L
     }
+
+    private class DataPlaneRestart(reason: String) : RuntimeException(reason)
 }

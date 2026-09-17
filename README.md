@@ -42,6 +42,9 @@ APK:
    ricevitore; rispondere per aprire la dashboard.
 4. Sul trasmettitore attivare gli switch dei permessi e premere
    **Avvia monitoraggio**.
+   Attivare anche **Nessuna restrizione batteria** e, sui dispositivi Xiaomi,
+   impostare manualmente FindMe su **Risparmio batteria > Nessuna restrizione**
+   e abilitare l’avvio automatico.
 5. Sul ricevitore selezionare il dispositivo e attivare audio/video.
 
 ## Tracking e prestazioni
@@ -52,6 +55,11 @@ L’ingranaggio nella home del ricevitore configura per tutti i trasmettitori:
 - posizione rapida: 5/10/15/20 secondi;
 - storico: 1x/2x/3x e salvataggio solo in movimento;
 - heartbeat: 30/60/90/120 secondi.
+
+Sessione Supabase, heartbeat e canali Realtime sono sorvegliati
+indipendentemente. Dopo una perdita di rete entrambe le app ricreano
+automaticamente il piano dati con retry progressivo; il monitoraggio locale
+rimane attivo e non richiede interventi sull’interruttore.
 
 Nel tab **Posizione**, l’occhio abilita temporaneamente il tracking rapido.
 **Storico rapido** applica la stessa frequenza anche alla registrazione dello

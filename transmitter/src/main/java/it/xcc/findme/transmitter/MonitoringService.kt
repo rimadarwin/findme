@@ -10,9 +10,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.BatteryManager
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -31,6 +34,7 @@ import io.livekit.android.room.track.CameraPosition
 import io.livekit.android.room.track.LocalVideoTrack
 import io.livekit.android.room.track.Track
 import it.xcc.findme.core.CommandType
+import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
 import it.xcc.findme.core.DeviceLocation
 import it.xcc.findme.core.DeviceRole
@@ -42,6 +46,7 @@ import it.xcc.findme.core.TrackingConfigResolver
 import it.xcc.findme.core.TrackingRuntimeState
 import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -52,14 +57,18 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var identity: DeviceIdentity
     private lateinit var repository: FindMeRepository
     private lateinit var locationClient: FusedLocationProviderClient
+    private lateinit var connectivityManager: ConnectivityManager
     private var room: Room? = null
     private var controlPlaneJob: Job? = null
     private var mediaEventsJob: Job? = null
@@ -77,12 +86,33 @@ class MonitoringService : Service() {
     private var activeLocationIntervalSec: Int? = null
     private var lastHistoryPoint: DeviceLocation? = null
     private var lastHistorySavedAtMillis: Long? = null
+    private val recoverySignals = Channel<Throwable>(Channel.CONFLATED)
+    @Volatile
+    private var networkWasLost = false
+    private var lastSuccessfulHeartbeatElapsedMs = 0L
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onLost(network: Network) {
+            networkWasLost = true
+            Log.w(TAG, "Network unavailable; automatic recovery armed")
+        }
+
+        override fun onAvailable(network: Network) {
+            if (networkWasLost) {
+                networkWasLost = false
+                Log.i(TAG, "Network available again; restarting control plane")
+                recoverySignals.trySend(ControlPlaneRestart("network restored"))
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         identity = DeviceIdentity(this)
         repository = FindMeRepository()
         locationClient = LocationServices.getFusedLocationProviderClient(this)
+        connectivityManager = getSystemService(ConnectivityManager::class.java)
+        connectivityManager.registerDefaultNetworkCallback(networkCallback)
         createNotificationChannel()
     }
 
@@ -103,6 +133,7 @@ class MonitoringService : Service() {
 
     override fun onDestroy() {
         locationClient.removeLocationUpdates(locationCallback)
+        runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
         scope.cancel()
         room?.disconnect()
         super.onDestroy()
@@ -111,16 +142,30 @@ class MonitoringService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun maintainControlPlane() {
+        var consecutiveFailures = 0
         while (scope.isActive && identity.monitoringEnabled) {
-            runCatching {
-                repository.ensureAuthenticated()
-                repository.registerDevice(identity.id, identity.name, DeviceRole.TRANSMITTER)
-                publishStatus()
+            val activeRepository = repository
+            var retryImmediately = false
+            try {
+                activeRepository.ensureAuthenticated(forceRefresh = true)
+                withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
+                    activeRepository.registerDevice(
+                        identity.id,
+                        identity.name,
+                        DeviceRole.TRANSMITTER,
+                    )
+                    publishStatus()
+                }
+                lastSuccessfulHeartbeatElapsedMs = SystemClock.elapsedRealtime()
+                Log.i(TAG, "Control plane healthy; initial heartbeat published")
+                consecutiveFailures = 0
                 coroutineScope {
                     launch { observeTrackingState() }
                     launch { evaluateTrackingState() }
                     launch { sendHeartbeats() }
+                    launch { maintainSessionAndChannelHealth() }
                     launch { maintainMediaOnDemand() }
+                    launch { throw recoverySignals.receive() }
                     launch {
                         repository.commands(identity.id).collect { commands ->
                             commands.filter { it.id !in appliedCommands }.forEach { command ->
@@ -135,8 +180,26 @@ class MonitoringService : Service() {
                     }
                     awaitCancellation()
                 }
-            }.onFailure { Log.e(TAG, "Control plane connection failed", it) }
-            delay(RECONNECT_DELAY_MS)
+            } catch (error: CancellationException) {
+                if (!scope.isActive) throw error
+                consecutiveFailures++
+                Log.e(TAG, "Control plane coroutine cancelled unexpectedly", error)
+            } catch (restart: ControlPlaneRestart) {
+                retryImmediately = true
+                Log.i(TAG, "Control plane restart requested: ${restart.message}")
+            } catch (error: Throwable) {
+                consecutiveFailures++
+                Log.e(TAG, "Control plane connection failed", error)
+            } finally {
+                runCatching { activeRepository.shutdownRealtime() }
+            }
+            if (!scope.isActive || !identity.monitoringEnabled) break
+            if (repository === activeRepository) repository = FindMeRepository()
+            if (!retryImmediately) {
+                val retryDelay = ConnectionRecoveryPolicy.retryDelayMs(consecutiveFailures)
+                Log.i(TAG, "Retrying control plane in ${retryDelay / 1_000}s")
+                withTimeoutOrNull(retryDelay) { recoverySignals.receive() }
+            }
         }
     }
 
@@ -286,9 +349,29 @@ class MonitoringService : Service() {
 
     private suspend fun sendHeartbeats() {
         while (scope.isActive && identity.monitoringEnabled) {
-            runCatching { publishStatus() }
-                .onFailure { Log.e(TAG, "Heartbeat failed", it) }
             delay(effectiveConfig.heartbeatIntervalSec * 1_000L)
+            withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
+                publishStatus()
+            }
+            lastSuccessfulHeartbeatElapsedMs = SystemClock.elapsedRealtime()
+            Log.d(TAG, "Heartbeat published successfully")
+        }
+    }
+
+    private suspend fun maintainSessionAndChannelHealth() {
+        while (scope.isActive && identity.monitoringEnabled) {
+            delay(HEALTH_CHECK_INTERVAL_MS)
+            val now = SystemClock.elapsedRealtime()
+            if (ConnectionRecoveryPolicy.isHeartbeatStale(
+                    lastSuccessElapsedMs = lastSuccessfulHeartbeatElapsedMs,
+                    nowElapsedMs = now,
+                    heartbeatIntervalSec = effectiveConfig.heartbeatIntervalSec,
+                )
+            ) {
+                throw IllegalStateException("Heartbeat watchdog timeout")
+            }
+            repository.ensureAuthenticated(forceRefresh = true)
+            throw ControlPlaneRestart("periodic authenticated channel renewal")
         }
     }
 
@@ -323,8 +406,13 @@ class MonitoringService : Service() {
                     recordedAt = Instant.ofEpochMilli(location.time).toString(),
                 )
                 runCatching {
-                    repository.updateCurrentLocation(point)
-                }.onFailure { Log.e(TAG, "Location upload failed", it) }
+                    withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
+                        repository.updateCurrentLocation(point)
+                    }
+                }.onFailure {
+                    Log.e(TAG, "Location upload failed", it)
+                    recoverySignals.trySend(it)
+                }
                 if (trackingState?.relationship?.geofenceEnabled == true) {
                     runCatching {
                         repository.checkGeofence(point)
@@ -424,9 +512,9 @@ class MonitoringService : Service() {
         private const val CHANNEL_ID = "findme_monitoring"
         private const val TAG = "FindMeMonitoring"
         private const val NOTIFICATION_ID = 1101
-        private const val RECONNECT_DELAY_MS = 5_000L
         private const val TRACKING_EVALUATION_INTERVAL_MS = 1_000L
         private const val MEDIA_WATCHDOG_INTERVAL_MS = 5_000L
+        private const val HEALTH_CHECK_INTERVAL_MS = 15 * 60 * 1_000L
 
         val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
@@ -436,4 +524,6 @@ class MonitoringService : Service() {
 
         fun intent(context: Context) = Intent(context, MonitoringService::class.java)
     }
+
+    private class ControlPlaneRestart(reason: String) : RuntimeException(reason)
 }

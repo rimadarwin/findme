@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -55,9 +56,13 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import it.xcc.findme.core.AppConfig
+import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
 import it.xcc.findme.core.DeviceRole
 import it.xcc.findme.core.FindMeRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 private val FindMeColorScheme = darkColorScheme(
@@ -82,9 +87,11 @@ class MainActivity : ComponentActivity() {
     private var notificationsEnabled by mutableStateOf(false)
     private var monitoringPermissionsGranted by mutableStateOf(false)
     private var backgroundLocationGranted by mutableStateOf(false)
+    private var batteryOptimizationDisabled by mutableStateOf(false)
     private var accessQuestion by mutableStateOf<String?>(null)
     private var accessGranted by mutableStateOf(false)
     private var accessLoading by mutableStateOf(false)
+    private var initializationJob: Job? = null
 
     private val permissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -163,6 +170,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshPermissionStatus()
+    }
+
+    override fun onDestroy() {
+        initializationJob?.cancel()
+        super.onDestroy()
     }
 
     @androidx.compose.runtime.Composable
@@ -379,6 +391,16 @@ class MainActivity : ComponentActivity() {
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 PermissionSwitch(
+                    title = "Nessuna restrizione batteria",
+                    subtitle = "Evita che Android sospenda connessione e heartbeat",
+                    checked = batteryOptimizationDisabled,
+                    onChange = {
+                        if (it) requestBatteryOptimizationExemption()
+                        else openBatteryOptimizationSettings()
+                    },
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                PermissionSwitch(
                     title = "Notifiche",
                     subtitle = "Gestisce solo le notifiche FindMe",
                     checked = notificationsEnabled,
@@ -418,21 +440,32 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun initializeDevice() {
-        lifecycleScope.launch {
-            runCatching {
-                repository!!.ensureAuthenticated()
-                repository!!.registerDevice(identity.id, identity.name, DeviceRole.TRANSMITTER)
-            }.onSuccess {
-                ready = true
-                loadAccessChallenge()
-                if (monitoring) {
-                    ContextCompat.startForegroundService(
-                        this@MainActivity,
-                        MonitoringService.intent(this@MainActivity),
+        initializationJob?.cancel()
+        initializationJob = lifecycleScope.launch {
+            var failures = 0
+            while (isActive && !ready) {
+                try {
+                    repository!!.ensureAuthenticated()
+                    repository!!.registerDevice(
+                        identity.id,
+                        identity.name,
+                        DeviceRole.TRANSMITTER,
                     )
+                    ready = true
+                    message = ""
+                    loadAccessChallenge()
+                    if (monitoring) {
+                        ContextCompat.startForegroundService(
+                            this@MainActivity,
+                            MonitoringService.intent(this@MainActivity),
+                        )
+                    }
+                } catch (error: Throwable) {
+                    failures++
+                    Log.e(TAG, "Device initialization failed; retrying", error)
+                    message = "Connessione temporaneamente assente. Riprovo automaticamente…"
+                    delay(ConnectionRecoveryPolicy.retryDelayMs(failures))
                 }
-            }.onFailure {
-                message = it.message ?: "Inizializzazione non riuscita."
             }
         }
     }
@@ -542,6 +575,9 @@ class MainActivity : ComponentActivity() {
                 this,
                 Manifest.permission.ACCESS_BACKGROUND_LOCATION,
             ) == PackageManager.PERMISSION_GRANTED
+        batteryOptimizationDisabled =
+            getSystemService(PowerManager::class.java)
+                .isIgnoringBatteryOptimizations(packageName)
     }
 
     private fun openAppSettings() {
@@ -557,6 +593,19 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 29) {
             backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         }
+    }
+
+    private fun requestBatteryOptimizationExemption() {
+        startActivity(
+            Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:$packageName"),
+            ),
+        )
+    }
+
+    private fun openBatteryOptimizationSettings() {
+        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
     }
 
     private fun startMonitoring() {
