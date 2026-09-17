@@ -1,11 +1,13 @@
 package it.xcc.findme.receiver
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -25,6 +27,8 @@ import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -37,6 +41,7 @@ import org.maplibre.geojson.Point
 fun HistoryMap(
     points: List<LocationHistoryPoint>,
     selectedIndex: Int,
+    fillAvailable: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -68,9 +73,25 @@ fun HistoryMap(
     }
 
     AndroidView(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(300.dp),
+        modifier = (if (fillAvailable) {
+            modifier.fillMaxSize()
+        } else {
+            modifier
+                .fillMaxWidth()
+                .height(300.dp)
+        }).pointerInteropFilter { event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN,
+                android.view.MotionEvent.ACTION_MOVE,
+                android.view.MotionEvent.ACTION_POINTER_DOWN,
+                -> mapView.parent?.requestDisallowInterceptTouchEvent(true)
+
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL,
+                -> mapView.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            false
+        },
         factory = { mapView },
         update = { view ->
             view.getMapAsync { map ->
@@ -140,8 +161,10 @@ fun HistoryMap(
                         )
                         style.addLayer(
                             CircleLayer(CURRENT_LAYER, CURRENT_SOURCE).withProperties(
-                                circleColor("#FFFFFF"),
-                                circleRadius(6f),
+                                circleColor("#FFC107"),
+                                circleRadius(8f),
+                                circleStrokeColor("#3E2723"),
+                                circleStrokeWidth(3f),
                             ),
                         )
                     }

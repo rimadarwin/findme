@@ -179,12 +179,30 @@ private fun PositionTab(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            PositionCoordinates(item, onFullscreen)
-            DeviceMap(
-                deviceName = item.displayName,
-                location = location,
-                geofence = item.relationship,
-            )
+            PositionCoordinates(item)
+            Box {
+                DeviceMap(
+                    deviceName = item.displayName,
+                    location = location,
+                    geofence = item.relationship,
+                )
+                IconButton(
+                    onClick = onFullscreen,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            CircleShape,
+                        ),
+                ) {
+                    Icon(
+                        Icons.Outlined.Fullscreen,
+                        contentDescription = "Mappa a schermo intero",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
         }
         PositionControls(
             item = item,
@@ -202,7 +220,6 @@ private fun PositionTab(
 @Composable
 internal fun PositionCoordinates(
     item: MonitoredDevice,
-    onFullscreen: (() -> Unit)? = null,
 ) {
     val location = item.location ?: return
     Row(
@@ -218,15 +235,6 @@ internal fun PositionCoordinates(
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.primary,
         )
-        if (onFullscreen != null) {
-            IconButton(onClick = onFullscreen) {
-                Icon(
-                    Icons.Outlined.Fullscreen,
-                    contentDescription = "Mappa a schermo intero",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
     }
 }
 

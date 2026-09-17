@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -41,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
 import it.xcc.findme.core.LocationHistoryPage
 import it.xcc.findme.core.LocationHistoryPoint
 import it.xcc.findme.core.MonitoredDevice
@@ -56,6 +60,7 @@ import kotlinx.coroutines.launch
 fun LocationHistoryScreen(
     device: MonitoredDevice,
     onBack: () -> Unit,
+    onFullscreenChange: (Boolean) -> Unit,
     loadRoute: suspend (Instant, Instant) -> List<LocationHistoryPoint>,
     loadPage: suspend (Instant, Instant, Long) -> LocationHistoryPage,
     modifier: Modifier = Modifier,
@@ -72,6 +77,7 @@ fun LocationHistoryScreen(
     var selectedIndex by remember { mutableIntStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
     var filtersExpanded by remember(device.device.id) { mutableStateOf(false) }
+    var fullscreen by remember(device.device.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun executeQuery() {
@@ -117,6 +123,30 @@ fun LocationHistoryScreen(
     val safeIndex = selectedIndex.coerceIn(0..route.lastIndex.coerceAtLeast(0))
     val selectedPoint = route.getOrNull(safeIndex)
 
+    fun closeFullscreen() {
+        fullscreen = false
+        onFullscreenChange(false)
+    }
+
+    DisposableEffect(fullscreen) {
+        onDispose {
+            if (fullscreen) onFullscreenChange(false)
+        }
+    }
+
+    if (fullscreen && route.isNotEmpty()) {
+        BackHandler(onBack = ::closeFullscreen)
+        HistoryFullscreenScreen(
+            device = device,
+            route = route,
+            selectedIndex = safeIndex,
+            onSelectedIndexChange = { selectedIndex = it },
+            onExit = ::closeFullscreen,
+            modifier = modifier,
+        )
+        return
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -124,7 +154,11 @@ fun LocationHistoryScreen(
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
+                    Text(
+                        "‹",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
                 }
                 Column {
                     Text(
@@ -179,7 +213,28 @@ fun LocationHistoryScreen(
             }
         } else {
             item {
-                HistoryMap(route, safeIndex)
+                Box {
+                    HistoryMap(route, safeIndex)
+                    IconButton(
+                        onClick = {
+                            fullscreen = true
+                            onFullscreenChange(true)
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                CircleShape,
+                            ),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Fullscreen,
+                            contentDescription = "Storico a schermo intero",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
             item {
                 Column {
@@ -424,7 +479,7 @@ private fun DateTimeButton(
 }
 
 @Composable
-private fun HistoryPointText(
+internal fun HistoryPointText(
     point: LocationHistoryPoint,
     modifier: Modifier = Modifier,
     prefix: String? = null,

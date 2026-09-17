@@ -32,6 +32,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import io.livekit.android.LiveKit
@@ -69,6 +70,7 @@ class ReceiverActivity : ComponentActivity() {
     private var showSettings by mutableStateOf(false)
     private var historyDeviceId by mutableStateOf<String?>(null)
     private var fullscreenDeviceId by mutableStateOf<String?>(null)
+    private var historyFullscreenActive by mutableStateOf(false)
     private var trackingSettings by mutableStateOf(ReceiverTrackingSettings(receiverId = ""))
     private var fastTrackingDeviceId by mutableStateOf<String?>(null)
     private var fastHistory by mutableStateOf(false)
@@ -115,6 +117,13 @@ class ReceiverActivity : ComponentActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && (fullscreenDeviceId != null || historyFullscreenActive)) {
+            hideSystemBars()
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         isForeground = true
@@ -131,6 +140,7 @@ class ReceiverActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (fullscreenDeviceId != null) closeFullscreenMap()
+        if (historyFullscreenActive) setHistoryFullscreen(false)
         disconnectMedia()
         deviceJob?.cancel()
         profileJob?.cancel()
@@ -181,6 +191,58 @@ class ReceiverActivity : ComponentActivity() {
         if (fullscreenDeviceId != null) {
             LaunchedEffect(fullscreenDeviceId) { closeFullscreenMap() }
         }
+        if (historyDevice != null) {
+            BackHandler(enabled = !historyFullscreenActive) {
+                historyDeviceId = null
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (historyFullscreenActive) {
+                            Modifier
+                        } else {
+                            Modifier.padding(16.dp)
+                        },
+                    ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                if (!historyFullscreenActive) {
+                    Text(
+                        "FindMe",
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.headlineLarge,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                LocationHistoryScreen(
+                    device = historyDevice,
+                    onBack = { historyDeviceId = null },
+                    onFullscreenChange = ::setHistoryFullscreen,
+                    loadRoute = { from, to ->
+                        repository!!.fetchLocationRoute(
+                            deviceId = historyDevice.device.id,
+                            from = from,
+                            to = to,
+                        )
+                    },
+                    loadPage = { from, to, offset ->
+                        repository!!.fetchLocationHistory(
+                            deviceId = historyDevice.device.id,
+                            from = from,
+                            to = to,
+                            offset = offset,
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            return
+        }
+        if (historyFullscreenActive) {
+            LaunchedEffect(historyDeviceId) { setHistoryFullscreen(false) }
+        }
         BackHandler(enabled = showSettings || historyDeviceId != null || selected != null) {
             when {
                 showSettings -> showSettings = false
@@ -212,26 +274,6 @@ class ReceiverActivity : ComponentActivity() {
                         settings = trackingSettings,
                         onBack = { showSettings = false },
                         onChange = ::saveTrackingSettings,
-                        modifier = Modifier.weight(1f),
-                    )
-                    historyDevice != null -> LocationHistoryScreen(
-                        device = historyDevice,
-                        onBack = { historyDeviceId = null },
-                        loadRoute = { from, to ->
-                            repository!!.fetchLocationRoute(
-                                deviceId = historyDevice.device.id,
-                                from = from,
-                                to = to,
-                            )
-                        },
-                        loadPage = { from, to, offset ->
-                            repository!!.fetchLocationHistory(
-                                deviceId = historyDevice.device.id,
-                                from = from,
-                                to = to,
-                                offset = offset,
-                            )
-                        },
                         modifier = Modifier.weight(1f),
                     )
                     historyDeviceId != null -> Text("Dispositivo non più disponibile.")
@@ -456,15 +498,36 @@ class ReceiverActivity : ComponentActivity() {
 
     private fun openFullscreenMap(deviceId: String) {
         fullscreenDeviceId = deviceId
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowCompat.getInsetsController(window, window.decorView)
-            .hide(WindowInsetsCompat.Type.systemBars())
+        enterImmersiveLandscape()
     }
 
     private fun closeFullscreenMap() {
         if (fullscreenDeviceId == null) return
         fullscreenDeviceId = null
+        if (!historyFullscreenActive) exitImmersiveLandscape()
+    }
+
+    private fun setHistoryFullscreen(enabled: Boolean) {
+        if (historyFullscreenActive == enabled) return
+        historyFullscreenActive = enabled
+        if (enabled) enterImmersiveLandscape() else exitImmersiveLandscape()
+    }
+
+    private fun enterImmersiveLandscape() {
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.decorView.post(::hideSystemBars)
+    }
+
+    private fun hideSystemBars() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    private fun exitImmersiveLandscape() {
         WindowCompat.getInsetsController(window, window.decorView)
             .show(WindowInsetsCompat.Type.systemBars())
         WindowCompat.setDecorFitsSystemWindows(window, true)

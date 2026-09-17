@@ -67,6 +67,8 @@ Dal tab Posizione è inoltre possibile:
 
 - aprire la mappa in modalità immersiva orizzontale, mantenendo coordinate e
   controlli in un pannello laterale;
+- aprire anche lo storico in modalità immersiva, con percorso a sinistra e
+  soltanto timeline e dettaglio del punto selezionato nel pannello destro;
 - attivare un avviso area centrato sulla posizione corrente, con raggio
   50/100/250/500/1000 metri;
 - ricevere una notifica FCM quando il trasmettitore passa dall’interno

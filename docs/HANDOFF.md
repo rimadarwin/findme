@@ -44,6 +44,8 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - storico posizioni con filtri 6h/24h/7 giorni e data/ora, percorso MapLibre,
   timeline fino a 1.500 punti e lista paginata a 50 righe.
 - mappa Posizione immersiva in orientamento landscape con pannello laterale;
+- storico immersivo landscape con timeline progressiva e dettaglio del solo
+  punto selezionato, senza elenco completo nel pannello laterale;
 - alert area circolare con raggi predefiniti, centro fotografato
   all’attivazione, overlay MapLibre e transizioni uscita/rientro idempotenti;
 - notifiche FCM al ricevitore anche ad app chiusa, con token protetti da RLS e
