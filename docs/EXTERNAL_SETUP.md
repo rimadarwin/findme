@@ -16,7 +16,11 @@ In alternativa, copiare il contenuto di
 `supabase/migrations/202609160001_findme.sql` nel **SQL Editor** ed eseguirlo.
 
 Le migrazioni creano tabelle, anagrafica ricevitori, relazioni di pairing,
-replica Realtime e policy RLS. Non disabilitare RLS.
+replica Realtime e policy RLS. La migrazione
+`202609170002_tracking_performance.sql` aggiunge impostazioni adattive, lease
+temporanei e la RPC protetta per il percorso storico; la successiva
+`202609170003_tracking_policy_fix.sql` rende la lettura RLS non ricorsiva. Non
+disabilitare RLS.
 
 ### Identità automatica
 
@@ -140,11 +144,15 @@ Android continuerà a mostrare notifica foreground e indicatori camera/microfono
 
 ## 6. Watchdog
 
-Il trasmettitore invia un heartbeat ogni 30 secondi. Il ricevente considera
-offline un dispositivo dopo 120 secondi. La resilienza è composta da:
+Il trasmettitore usa l’heartbeat configurato dal ricevitore (30/60/90/120
+secondi). Il ricevitore considera offline il dispositivo dopo due intervalli.
+La resilienza è composta da:
 
 - `START_STICKY` per la ricreazione del servizio;
-- riconnessione LiveKit/Supabase ogni 5 secondi;
+- riconnessione Supabase ogni 5 secondi;
+- connessione LiveKit solo quando audio o video sono richiesti;
+- cache locale delle ultime impostazioni tracking valide;
+- lease rapido di 90 secondi, rinnovato ogni 20 secondi e con fallback offline;
 - `BootReceiver` quando l'app è Device Owner;
 - stato online/offline derivato dal timestamp Supabase.
 

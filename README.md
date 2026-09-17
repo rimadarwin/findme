@@ -44,6 +44,25 @@ APK:
    **Avvia monitoraggio**.
 5. Sul ricevitore selezionare il dispositivo e attivare audio/video.
 
+## Tracking e prestazioni
+
+L’ingranaggio nella home del ricevitore configura per tutti i trasmettitori:
+
+- posizione in background: 30/60/90/120 secondi;
+- posizione rapida: 5/10/15/20 secondi;
+- storico: 1x/2x/3x e salvataggio solo in movimento;
+- heartbeat: 30/60/90/120 secondi.
+
+Nel tab **Posizione**, l’occhio abilita temporaneamente il tracking rapido.
+**Storico rapido** applica la stessa frequenza anche alla registrazione dello
+storico. La sessione scade automaticamente dopo 90 secondi e viene rinnovata
+solo mentre la vista è attiva.
+
+Audio e video sono realmente on-demand: senza uno stream attivo, né il
+trasmettitore né il ricevitore mantengono una connessione LiveKit. Lo storico,
+con retention di 30 giorni, offre filtri 6h/24h/7 giorni o data/ora, percorso
+MapLibre, timeline e lista paginata.
+
 Non servono email o password. Il pairing iniziale usa un codice univoco di 10
 caratteri fornito durante il provisioning; il nome del dispositivo rimane
 soltanto un'etichetta leggibile. Dopo l'accesso è possibile cambiare ricevitore

@@ -89,6 +89,27 @@ data class ReceiverProfile(
 )
 
 @Serializable
+data class ReceiverTrackingSettings(
+    @SerialName("device_id") val receiverId: String,
+    @SerialName("offline_location_interval_sec") val offlineLocationIntervalSec: Int = 60,
+    @SerialName("online_location_interval_sec") val onlineLocationIntervalSec: Int = 10,
+    @SerialName("history_multiplier") val historyMultiplier: Int = 2,
+    @EncodeDefault
+    @SerialName("only_movement") val onlyMovement: Boolean = true,
+    @SerialName("heartbeat_interval_sec") val heartbeatIntervalSec: Int = 60,
+)
+
+@Serializable
+data class TrackingSettingsUpdate(
+    @SerialName("offline_location_interval_sec") val offlineLocationIntervalSec: Int,
+    @SerialName("online_location_interval_sec") val onlineLocationIntervalSec: Int,
+    @SerialName("history_multiplier") val historyMultiplier: Int,
+    @EncodeDefault
+    @SerialName("only_movement") val onlyMovement: Boolean,
+    @SerialName("heartbeat_interval_sec") val heartbeatIntervalSec: Int,
+)
+
+@Serializable
 data class ReceiverRegistration(
     @SerialName("device_id") val deviceId: String,
     @SerialName("owner_id") val ownerId: String,
@@ -100,6 +121,37 @@ data class ReceiverTransmitter(
     @SerialName("receiver_id") val receiverId: String,
     @SerialName("transmitter_id") val transmitterId: String,
     val alias: String? = null,
+    @SerialName("live_tracking_until") val liveTrackingUntil: String? = null,
+    @EncodeDefault
+    @SerialName("live_history") val liveHistory: Boolean = false,
+)
+
+data class TrackingRuntimeState(
+    val settings: ReceiverTrackingSettings,
+    val relationship: ReceiverTransmitter,
+)
+
+@Serializable
+data class LocationHistoryPoint(
+    val id: Long,
+    @SerialName("device_id") val deviceId: String,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracy: Float? = null,
+    @SerialName("recorded_at") val recordedAt: String,
+)
+
+data class LocationHistoryPage(
+    val points: List<LocationHistoryPoint>,
+    val hasMore: Boolean,
+)
+
+@Serializable
+data class LocationRouteRequest(
+    @SerialName("target_device_id") val deviceId: String,
+    @SerialName("from_time") val fromTime: String,
+    @SerialName("to_time") val toTime: String,
+    @SerialName("max_points") val maxPoints: Int = 1500,
 )
 
 @Serializable
@@ -133,6 +185,7 @@ data class MonitoredDevice(
     val status: DeviceStatus? = null,
     val location: DeviceLocation? = null,
     val alias: String? = null,
+    val relationship: ReceiverTransmitter? = null,
 ) {
     val displayName: String
         get() = alias?.trim()?.takeIf { it.isNotEmpty() } ?: device.name
@@ -140,14 +193,19 @@ data class MonitoredDevice(
     val hasAlias: Boolean
         get() = !alias.isNullOrBlank()
 
-    fun isOnline(nowMillis: Long = System.currentTimeMillis()): Boolean {
+    fun isOnline(
+        nowMillis: Long = System.currentTimeMillis(),
+        heartbeatIntervalSec: Int = 60,
+    ): Boolean {
         val heartbeat = status?.lastHeartbeat ?: return false
         val heartbeatMillis = runCatching {
             java.time.Instant.parse(heartbeat).toEpochMilli()
         }.getOrNull() ?: return false
-        return nowMillis - heartbeatMillis < 120_000
+        return nowMillis - heartbeatMillis < heartbeatIntervalSec * 2_000L
     }
 
-    fun isMonitoringActive(nowMillis: Long = System.currentTimeMillis()): Boolean =
-        status?.isMonitoring == true && isOnline(nowMillis)
+    fun isMonitoringActive(
+        nowMillis: Long = System.currentTimeMillis(),
+        heartbeatIntervalSec: Int = 60,
+    ): Boolean = status?.isMonitoring == true && isOnline(nowMillis, heartbeatIntervalSec)
 }

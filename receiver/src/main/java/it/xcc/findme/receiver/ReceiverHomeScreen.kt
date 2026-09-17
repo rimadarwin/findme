@@ -12,8 +12,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,8 +33,10 @@ fun ReceiverHomeScreen(
     profile: ReceiverProfile?,
     receiverId: String,
     devices: List<MonitoredDevice>,
+    heartbeatIntervalSec: Int,
     onDeviceClick: (String) -> Unit,
     onAliasSave: (String, String) -> Unit,
+    onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -38,11 +44,24 @@ fun ReceiverHomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text(
-                "Questo telefono",
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.titleLarge,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Questo telefono",
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                IconButton(onClick = onSettingsClick) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = "Impostazioni tracking",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
         }
         item {
             Card(
@@ -94,6 +113,7 @@ fun ReceiverHomeScreen(
             items(devices, key = { it.device.id }) { device ->
                 AssociatedDeviceCard(
                     item = device,
+                    heartbeatIntervalSec = heartbeatIntervalSec,
                     onClick = { onDeviceClick(device.device.id) },
                     onAliasSave = { onAliasSave(device.device.id, it) },
                 )
@@ -105,10 +125,13 @@ fun ReceiverHomeScreen(
 @Composable
 private fun AssociatedDeviceCard(
     item: MonitoredDevice,
+    heartbeatIntervalSec: Int,
     onClick: () -> Unit,
     onAliasSave: (String) -> Unit,
 ) {
-    val monitoringActive = item.isMonitoringActive()
+    val monitoringActive = item.isMonitoringActive(
+        heartbeatIntervalSec = heartbeatIntervalSec,
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -140,7 +163,13 @@ private fun AssociatedDeviceCard(
             }
             Text(
                 buildString {
-                    append(if (item.isOnline()) "Online" else "Offline")
+                    append(
+                        if (item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec)) {
+                            "Online"
+                        } else {
+                            "Offline"
+                        },
+                    )
                     append("  •  Batteria ")
                     append(item.status?.batteryPercent?.let { "$it%" } ?: "n/d")
                 },

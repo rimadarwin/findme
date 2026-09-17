@@ -33,10 +33,22 @@ Evoluzioni implementate e validate sui dispositivi reali:
   ricevitore e affiancato al nome originale;
 - icone distinte per trasmittente e ricevente, entrambe installate come
   `FindMe`.
+- frequenze GPS offline/online, storico e heartbeat configurabili dal
+  ricevitore con valori vincolati dal database;
+- tracking rapido per dispositivo basato su lease rinnovabile, con ritorno
+  offline automatico anche in caso di crash o perdita rete;
+- GPS bilanciato in background e ad alta precisione durante il tracking rapido;
+- storico separato dalla posizione corrente, con intervallo moltiplicato e
+  filtro di movimento dipendente anche dalla precisione GPS;
+- LiveKit completamente on-demand e listener comandi Supabase indipendente;
+- storico posizioni con filtri 6h/24h/7 giorni e data/ora, percorso MapLibre,
+  timeline fino a 1.500 punti e lista paginata a 50 righe.
 
-La migrazione `202609160005_media_state.sql` aggiunge il comando
-`switch_camera` e lo stato persistito degli stream. Deve essere applicata prima
-di installare le nuove versioni delle app.
+Le migrazioni `202609160005_media_state.sql`,
+`202609170001_receiver_device_alias.sql` e
+`202609170002_tracking_performance.sql`, inclusa la correzione RLS
+`202609170003_tracking_policy_fix.sql`, devono essere applicate prima di
+installare le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano
 `@EncodeDefault`, perché Supabase deve ricevere esplicitamente anche `false`.
@@ -53,6 +65,5 @@ Function seguendo `docs/EXTERNAL_SETUP.md`.
 - provisioning Device Owner tramite QR/Android Management anziché ADB;
 - notifiche FCM per telefoni non gestiti;
 - miniature video multiple con simulcast;
-- storico posizione e filtri temporali;
 - test strumentali su Android 14/15 e dispositivi dei produttori scelti;
 - firma release e pipeline CI.

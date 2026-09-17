@@ -13,14 +13,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Timeline
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,12 +45,18 @@ enum class DeviceTab(val label: String) {
 @Composable
 fun DeviceDetailScreen(
     item: MonitoredDevice,
+    heartbeatIntervalSec: Int,
     selectedTab: DeviceTab,
     audioLevel: Float,
     onTabSelected: (DeviceTab) -> Unit,
     onBack: () -> Unit,
     onAliasSave: (String) -> Unit,
     onCommand: (CommandType) -> Unit,
+    fastTrackingActive: Boolean,
+    fastHistoryActive: Boolean,
+    onFastTrackingChange: (Boolean) -> Unit,
+    onFastHistoryChange: (Boolean) -> Unit,
+    onOpenHistory: () -> Unit,
     videoContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -51,7 +64,7 @@ fun DeviceDetailScreen(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        DeviceHeader(item, onBack, onAliasSave)
+        DeviceHeader(item, heartbeatIntervalSec, onBack, onAliasSave)
         TabRow(
             selectedTabIndex = selectedTab.ordinal,
             containerColor = MaterialTheme.colorScheme.surface,
@@ -66,9 +79,17 @@ fun DeviceDetailScreen(
             }
         }
         when (selectedTab) {
-            DeviceTab.POSITION -> PositionTab(item)
-            DeviceTab.VIDEO -> VideoTab(item, onCommand, videoContent)
-            DeviceTab.AUDIO -> AudioTab(item, audioLevel, onCommand)
+            DeviceTab.POSITION -> PositionTab(
+                item = item,
+                heartbeatIntervalSec = heartbeatIntervalSec,
+                fastTrackingActive = fastTrackingActive,
+                fastHistoryActive = fastHistoryActive,
+                onFastTrackingChange = onFastTrackingChange,
+                onFastHistoryChange = onFastHistoryChange,
+                onOpenHistory = onOpenHistory,
+            )
+            DeviceTab.VIDEO -> VideoTab(item, heartbeatIntervalSec, onCommand, videoContent)
+            DeviceTab.AUDIO -> AudioTab(item, heartbeatIntervalSec, audioLevel, onCommand)
         }
     }
 }
@@ -76,10 +97,13 @@ fun DeviceDetailScreen(
 @Composable
 private fun DeviceHeader(
     item: MonitoredDevice,
+    heartbeatIntervalSec: Int,
     onBack: () -> Unit,
     onAliasSave: (String) -> Unit,
 ) {
-    val monitoringActive = item.isMonitoringActive()
+    val monitoringActive = item.isMonitoringActive(
+        heartbeatIntervalSec = heartbeatIntervalSec,
+    )
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -104,7 +128,7 @@ private fun DeviceHeader(
             ) {
                 EditableDeviceName(item = item, onAliasSave = onAliasSave)
                 Text(
-                    "${if (item.isOnline()) "Online" else "Offline"}  •  " +
+                    "${if (item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec)) "Online" else "Offline"}  •  " +
                         "Batteria ${item.status?.batteryPercent?.let { "$it%" } ?: "n/d"}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
@@ -124,7 +148,15 @@ private fun DeviceHeader(
 }
 
 @Composable
-private fun PositionTab(item: MonitoredDevice) {
+private fun PositionTab(
+    item: MonitoredDevice,
+    heartbeatIntervalSec: Int,
+    fastTrackingActive: Boolean,
+    fastHistoryActive: Boolean,
+    onFastTrackingChange: (Boolean) -> Unit,
+    onFastHistoryChange: (Boolean) -> Unit,
+    onOpenHistory: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -148,12 +180,78 @@ private fun PositionTab(item: MonitoredDevice) {
             )
             DeviceMap(item.displayName, location)
         }
+        TrackingControl(
+            title = "Aggiornamento rapido",
+            description = "Richiede posizioni più frequenti finché questa vista resta attiva.",
+            checked = fastTrackingActive,
+            enabled = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec),
+            icon = {
+                Icon(
+                    if (fastTrackingActive) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                    contentDescription = null,
+                )
+            },
+            onCheckedChange = onFastTrackingChange,
+        )
+        TrackingControl(
+            title = "Storico rapido",
+            description = "Salva lo storico usando la frequenza rapida moltiplicata.",
+            checked = fastHistoryActive,
+            enabled = fastTrackingActive,
+            icon = {
+                Icon(Icons.Outlined.Timeline, contentDescription = null)
+            },
+            onCheckedChange = onFastHistoryChange,
+        )
+        TextButton(onClick = onOpenHistory) {
+            Icon(Icons.Outlined.History, contentDescription = null)
+            Text("  Consulta storico posizioni")
+        }
+    }
+}
+
+@Composable
+private fun TrackingControl(
+    title: String,
+    description: String,
+    checked: Boolean,
+    enabled: Boolean,
+    icon: @Composable () -> Unit,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            icon()
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    description,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = onCheckedChange,
+            )
+        }
     }
 }
 
 @Composable
 private fun VideoTab(
     item: MonitoredDevice,
+    heartbeatIntervalSec: Int,
     onCommand: (CommandType) -> Unit,
     videoContent: @Composable () -> Unit,
 ) {
@@ -167,7 +265,8 @@ private fun VideoTab(
         MediaSwitch(
             title = "Streaming video",
             checked = streaming,
-            enabled = item.isOnline() && item.status?.cameraAvailable == true,
+            enabled = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec) &&
+                item.status?.cameraAvailable == true,
             onCheckedChange = {
                 onCommand(if (it) CommandType.START_VIDEO else CommandType.STOP_VIDEO)
             },
@@ -217,6 +316,7 @@ private fun VideoTab(
 @Composable
 private fun AudioTab(
     item: MonitoredDevice,
+    heartbeatIntervalSec: Int,
     audioLevel: Float,
     onCommand: (CommandType) -> Unit,
 ) {
@@ -230,7 +330,8 @@ private fun AudioTab(
         MediaSwitch(
             title = "Streaming audio",
             checked = streaming,
-            enabled = item.isOnline() && item.status?.microphoneAvailable == true,
+            enabled = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec) &&
+                item.status?.microphoneAvailable == true,
             onCheckedChange = {
                 onCommand(if (it) CommandType.START_AUDIO else CommandType.STOP_AUDIO)
             },
