@@ -66,6 +66,11 @@ MapLibre, timeline e lista paginata.
 Durante lo streaming video il ricevitore può cambiare fotocamera e salvare il
 fotogramma visualizzato nella galleria, dentro `Pictures/FindMe`.
 
+Il ricevitore può inoltre registrare clip locali indipendenti: video senza
+audio in `Movies/FindMe` (`.mp4`) e audio in `Music/FindMe` (`.m4a`). La
+registrazione usa start/stop manuale, si arresta automaticamente lasciando il
+tab o interrompendo lo stream e ha un limite di sicurezza di 30 minuti.
+
 Dal tab Posizione è inoltre possibile:
 
 - aprire la mappa in modalità immersiva orizzontale, mantenendo coordinate e

@@ -45,4 +45,5 @@ dependencies {
     implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation(platform("com.google.firebase:firebase-bom:34.18.0"))
     implementation("com.google.firebase:firebase-messaging")
+    testImplementation("junit:junit:4.13.2")
 }

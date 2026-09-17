@@ -7,7 +7,9 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -41,6 +43,7 @@ import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
 import io.livekit.android.renderer.TextureViewRenderer
 import io.livekit.android.room.Room
+import io.livekit.android.room.track.AudioTrack
 import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoTrack
 import it.xcc.findme.core.AppConfig
@@ -53,6 +56,11 @@ import it.xcc.findme.core.MonitoredDevice
 import it.xcc.findme.core.ReceiverProfile
 import it.xcc.findme.core.ReceiverTrackingSettings
 import it.xcc.findme.core.TrackingSettingsUpdate
+import it.xcc.findme.receiver.recording.AudioM4aRecorder
+import it.xcc.findme.receiver.recording.LocalRecordingState
+import it.xcc.findme.receiver.recording.RecordingPolicy
+import it.xcc.findme.receiver.recording.RecordingResult
+import it.xcc.findme.receiver.recording.VideoMp4Recorder
 import java.time.Instant
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -80,10 +88,21 @@ class ReceiverActivity : ComponentActivity() {
     private var message by mutableStateOf("")
     private var audioLevel by mutableFloatStateOf(0f)
     private var videoTrack by mutableStateOf<VideoTrack?>(null)
+    private var audioTrack by mutableStateOf<AudioTrack?>(null)
     private var room: Room? = null
     private var roomDeviceId: String? = null
     private var renderer: TextureViewRenderer? = null
     private var snapshotPreview by mutableStateOf<Bitmap?>(null)
+    private var videoRecordingState by mutableStateOf<LocalRecordingState>(
+        LocalRecordingState.Idle,
+    )
+    private var audioRecordingState by mutableStateOf<LocalRecordingState>(
+        LocalRecordingState.Idle,
+    )
+    private var videoRecorder: VideoMp4Recorder? = null
+    private var audioRecorder: AudioM4aRecorder? = null
+    private var videoRecordingTimerJob: Job? = null
+    private var audioRecordingTimerJob: Job? = null
     private var deviceJob: Job? = null
     private var profileJob: Job? = null
     private var settingsJob: Job? = null
@@ -296,7 +315,15 @@ class ReceiverActivity : ComponentActivity() {
                         heartbeatIntervalSec = trackingSettings.heartbeatIntervalSec,
                         selectedTab = selectedTab,
                         audioLevel = audioLevel,
-                        onTabSelected = { selectedTab = it },
+                        onTabSelected = { tab ->
+                            if (selectedTab == DeviceTab.VIDEO && tab != DeviceTab.VIDEO) {
+                                stopVideoRecording()
+                            }
+                            if (selectedTab == DeviceTab.AUDIO && tab != DeviceTab.AUDIO) {
+                                stopAudioRecording()
+                            }
+                            selectedTab = tab
+                        },
                         onBack = ::closeDetail,
                         onAliasSave = { updateAlias(selected.device.id, it) },
                         onCommand = { command(selected, it) },
@@ -318,6 +345,24 @@ class ReceiverActivity : ComponentActivity() {
                         },
                         onOpenHistory = { historyDeviceId = selected.device.id },
                         onTakePhoto = { takeVideoSnapshot(selected) },
+                        videoTrackAvailable = videoTrack != null,
+                        audioTrackAvailable = audioTrack != null,
+                        videoRecordingState = videoRecordingState,
+                        audioRecordingState = audioRecordingState,
+                        onVideoRecordingToggle = {
+                            if (videoRecordingState.isActive) {
+                                stopVideoRecording()
+                            } else {
+                                startVideoRecording(selected)
+                            }
+                        },
+                        onAudioRecordingToggle = {
+                            if (audioRecordingState.isActive) {
+                                stopAudioRecording()
+                            } else {
+                                startAudioRecording(selected)
+                            }
+                        },
                         snapshotPreview = snapshotPreview,
                         onSnapshotAnimationFinished = ::clearSnapshotAnimation,
                         videoContent = {
@@ -418,6 +463,14 @@ class ReceiverActivity : ComponentActivity() {
                     if (selectedId != null && rows.none { it.device.id == selectedId }) {
                         closeDetail()
                     } else {
+                        rows.firstOrNull { it.device.id == selectedId }?.let { selected ->
+                            if (selected.status?.cameraStreaming != true) {
+                                stopVideoRecording()
+                            }
+                            if (selected.status?.microphoneStreaming != true) {
+                                stopAudioRecording()
+                            }
+                        }
                         reconcileMediaConnection()
                     }
                 }
@@ -558,6 +611,193 @@ class ReceiverActivity : ComponentActivity() {
         }
     }
 
+    private fun startVideoRecording(device: MonitoredDevice) {
+        if (videoRecordingState.isActive || !ensureLegacyStoragePermission()) return
+        val track = videoTrack
+        if (track == null) {
+            message = "La track video non è ancora disponibile."
+            return
+        }
+        videoRecordingState = LocalRecordingState.Starting
+        lateinit var recorder: VideoMp4Recorder
+        recorder = VideoMp4Recorder(
+            context = applicationContext,
+            deviceName = device.displayName,
+            onStarted = {
+                runOnUiThread {
+                    if (videoRecorder === recorder &&
+                        videoRecordingState is LocalRecordingState.Starting
+                    ) {
+                        val startedAt = SystemClock.elapsedRealtime()
+                        videoRecordingState = LocalRecordingState.Recording(startedAt)
+                        videoRecordingTimerJob = startRecordingTimer(
+                            startedAtElapsedMs = startedAt,
+                            update = { elapsed ->
+                                videoRecordingState =
+                                    LocalRecordingState.Recording(startedAt, elapsed)
+                            },
+                            stop = ::stopVideoRecording,
+                        )
+                    }
+                }
+            },
+            onFinished = { result ->
+                runOnUiThread { finishVideoRecording(recorder, result) }
+            },
+        )
+        videoRecorder = recorder
+        runCatching { recorder.start(track) }.onFailure {
+            videoRecorder = null
+            videoRecordingState = LocalRecordingState.Idle
+            message = it.message ?: "Avvio registrazione video non riuscito."
+        }
+    }
+
+    private fun stopVideoRecording() {
+        if (!videoRecordingState.isActive ||
+            videoRecordingState is LocalRecordingState.Finalizing
+        ) {
+            return
+        }
+        videoRecordingTimerJob?.cancel()
+        videoRecordingTimerJob = null
+        videoRecordingState = LocalRecordingState.Finalizing
+        videoRecorder?.stop()
+    }
+
+    private fun finishVideoRecording(
+        recorder: VideoMp4Recorder,
+        result: RecordingResult,
+    ) {
+        if (videoRecorder !== recorder) return
+        videoRecordingTimerJob?.cancel()
+        videoRecordingTimerJob = null
+        videoRecorder = null
+        videoRecordingState = LocalRecordingState.Idle
+        showRecordingResult("Video", result)
+    }
+
+    private fun startAudioRecording(device: MonitoredDevice) {
+        if (audioRecordingState.isActive || !ensureLegacyStoragePermission()) return
+        val track = audioTrack
+        if (track == null) {
+            message = "La track audio non è ancora disponibile."
+            return
+        }
+        audioRecordingState = LocalRecordingState.Starting
+        lateinit var recorder: AudioM4aRecorder
+        recorder = AudioM4aRecorder(
+            context = applicationContext,
+            deviceName = device.displayName,
+            onStarted = {
+                runOnUiThread {
+                    if (audioRecorder === recorder &&
+                        audioRecordingState is LocalRecordingState.Starting
+                    ) {
+                        val startedAt = SystemClock.elapsedRealtime()
+                        audioRecordingState = LocalRecordingState.Recording(startedAt)
+                        audioRecordingTimerJob = startRecordingTimer(
+                            startedAtElapsedMs = startedAt,
+                            update = { elapsed ->
+                                audioRecordingState =
+                                    LocalRecordingState.Recording(startedAt, elapsed)
+                            },
+                            stop = ::stopAudioRecording,
+                        )
+                    }
+                }
+            },
+            onFinished = { result ->
+                runOnUiThread { finishAudioRecording(recorder, result) }
+            },
+        )
+        audioRecorder = recorder
+        runCatching { recorder.start(track) }.onFailure {
+            audioRecorder = null
+            audioRecordingState = LocalRecordingState.Idle
+            message = it.message ?: "Avvio registrazione audio non riuscito."
+        }
+    }
+
+    private fun stopAudioRecording() {
+        if (!audioRecordingState.isActive ||
+            audioRecordingState is LocalRecordingState.Finalizing
+        ) {
+            return
+        }
+        audioRecordingTimerJob?.cancel()
+        audioRecordingTimerJob = null
+        audioRecordingState = LocalRecordingState.Finalizing
+        audioRecorder?.stop()
+    }
+
+    private fun finishAudioRecording(
+        recorder: AudioM4aRecorder,
+        result: RecordingResult,
+    ) {
+        if (audioRecorder !== recorder) return
+        audioRecordingTimerJob?.cancel()
+        audioRecordingTimerJob = null
+        audioRecorder = null
+        audioRecordingState = LocalRecordingState.Idle
+        showRecordingResult("Audio", result)
+    }
+
+    private fun startRecordingTimer(
+        startedAtElapsedMs: Long,
+        update: (Long) -> Unit,
+        stop: () -> Unit,
+    ): Job = lifecycleScope.launch {
+        while (isActive) {
+            val elapsed = SystemClock.elapsedRealtime() - startedAtElapsedMs
+            if (elapsed >= RecordingPolicy.MAX_DURATION_MS) {
+                Toast.makeText(
+                    this@ReceiverActivity,
+                    "Raggiunto il limite di 30 minuti.",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                stop()
+                return@launch
+            }
+            update(elapsed)
+            delay(1_000)
+        }
+    }
+
+    private fun stopAllRecordings() {
+        stopVideoRecording()
+        stopAudioRecording()
+    }
+
+    private fun showRecordingResult(label: String, result: RecordingResult) {
+        when {
+            result.error != null -> {
+                message = result.error.message ?: "Registrazione $label non riuscita."
+            }
+            result.path != null -> {
+                message = ""
+                Toast.makeText(
+                    this,
+                    "$label salvato in ${result.path}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            else -> message = "Registrazione troppo breve: nessun file salvato."
+        }
+    }
+
+    private fun ensureLegacyStoragePermission(): Boolean {
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P ||
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return true
+        }
+        requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 1202)
+        message = "Concedi l’accesso ai file e riprova."
+        return false
+    }
+
     private fun openFullscreenMap(deviceId: String) {
         fullscreenDeviceId = deviceId
         enterImmersiveLandscape()
@@ -656,6 +896,11 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun command(device: MonitoredDevice, type: CommandType) {
+        when (type) {
+            CommandType.STOP_VIDEO -> stopVideoRecording()
+            CommandType.STOP_AUDIO -> stopAudioRecording()
+            else -> Unit
+        }
         lifecycleScope.launch {
             runCatching { repository!!.sendCommand(device.device.id, type) }
                 .onFailure { message = it.message ?: "Invio comando non riuscito." }
@@ -714,8 +959,22 @@ class ReceiverActivity : ComponentActivity() {
                                 event is RoomEvent.TrackSubscribed && event.track is VideoTrack -> {
                                     bindVideoTrack(event.track as VideoTrack)
                                 }
+                                event is RoomEvent.TrackSubscribed && event.track is AudioTrack -> {
+                                    bindAudioTrack(event.track as AudioTrack)
+                                }
+                                event is RoomEvent.TrackUnsubscribed &&
+                                    event.track is VideoTrack -> {
+                                    stopVideoRecording()
+                                    if (videoTrack === event.track) videoTrack = null
+                                }
+                                event is RoomEvent.TrackUnsubscribed &&
+                                    event.track is AudioTrack -> {
+                                    stopAudioRecording()
+                                    if (audioTrack === event.track) audioTrack = null
+                                }
                                 event is RoomEvent.TrackMuted &&
                                     event.publication.kind == Track.Kind.VIDEO -> {
+                                    stopVideoRecording()
                                     renderer?.clearImage()
                                 }
                                 event is RoomEvent.TrackUnmuted &&
@@ -724,12 +983,14 @@ class ReceiverActivity : ComponentActivity() {
                                 }
                                 event is RoomEvent.TrackMuted &&
                                     event.publication.kind == Track.Kind.AUDIO -> {
+                                    stopAudioRecording()
                                     audioLevel = 0f
                                 }
                                 event is RoomEvent.ActiveSpeakersChanged -> {
                                     audioLevel = event.speakers.maxOfOrNull { it.audioLevel } ?: 0f
                                 }
                                 event is RoomEvent.Disconnected -> {
+                                    stopAllRecordings()
                                     audioLevel = 0f
                                     renderer?.clearImage()
                                     if (room === newRoom) {
@@ -771,6 +1032,9 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun bindVideoTrack(track: VideoTrack) {
+        if (videoTrack !== track && videoRecordingState.isActive) {
+            stopVideoRecording()
+        }
         renderer?.let { view ->
             videoTrack?.removeRenderer(view)
             track.addRenderer(view)
@@ -778,7 +1042,15 @@ class ReceiverActivity : ComponentActivity() {
         videoTrack = track
     }
 
+    private fun bindAudioTrack(track: AudioTrack) {
+        if (audioTrack !== track && audioRecordingState.isActive) {
+            stopAudioRecording()
+        }
+        audioTrack = track
+    }
+
     private fun disconnectMedia(cancelConnection: Boolean = true) {
+        stopAllRecordings()
         if (cancelConnection) connectionJob?.cancel()
         renderer?.let { view -> videoTrack?.removeRenderer(view) }
         roomEventsJob?.cancel()
@@ -789,6 +1061,7 @@ class ReceiverActivity : ComponentActivity() {
         room = null
         roomDeviceId = null
         videoTrack = null
+        audioTrack = null
         audioLevel = 0f
         renderer?.clearImage()
     }

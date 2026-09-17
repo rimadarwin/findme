@@ -52,6 +52,9 @@ Evoluzioni implementate e validate sui dispositivi reali:
   invio tramite Edge Function.
 - acquisizione di un fotogramma dal video remoto e salvataggio nella galleria
   del ricevitore in `Pictures/FindMe`.
+- registrazione locale indipendente di video H.264/MP4 in `Movies/FindMe` e
+  audio AAC/M4A in `Music/FindMe`, con REC manuale, timer, limite 30 minuti e
+  finalizzazione automatica su uscita dal tab, stop stream o disconnessione.
 
 Le migrazioni `202609160005_media_state.sql`,
 `202609170001_receiver_device_alias.sql` e

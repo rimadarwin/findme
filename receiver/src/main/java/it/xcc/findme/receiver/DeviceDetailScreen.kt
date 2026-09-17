@@ -19,6 +19,8 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Cameraswitch
+import androidx.compose.material.icons.outlined.FiberManualRecord
+import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.Timeline
@@ -41,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.MonitoredDevice
+import it.xcc.findme.receiver.recording.LocalRecordingState
+import it.xcc.findme.receiver.recording.RecordingPolicy
 
 enum class DeviceTab(val label: String) {
     POSITION("Posizione"),
@@ -66,6 +70,12 @@ fun DeviceDetailScreen(
     onFullscreen: () -> Unit,
     onOpenHistory: () -> Unit,
     onTakePhoto: () -> Unit,
+    videoTrackAvailable: Boolean,
+    audioTrackAvailable: Boolean,
+    videoRecordingState: LocalRecordingState,
+    audioRecordingState: LocalRecordingState,
+    onVideoRecordingToggle: () -> Unit,
+    onAudioRecordingToggle: () -> Unit,
     snapshotPreview: Bitmap?,
     onSnapshotAnimationFinished: () -> Unit,
     videoContent: @Composable () -> Unit,
@@ -107,9 +117,20 @@ fun DeviceDetailScreen(
                     heartbeatIntervalSec = heartbeatIntervalSec,
                     onCommand = onCommand,
                     onTakePhoto = onTakePhoto,
+                    trackAvailable = videoTrackAvailable,
+                    recordingState = videoRecordingState,
+                    onRecordingToggle = onVideoRecordingToggle,
                     videoContent = videoContent,
                 )
-                DeviceTab.AUDIO -> AudioTab(item, heartbeatIntervalSec, audioLevel, onCommand)
+                DeviceTab.AUDIO -> AudioTab(
+                    item = item,
+                    heartbeatIntervalSec = heartbeatIntervalSec,
+                    audioLevel = audioLevel,
+                    onCommand = onCommand,
+                    trackAvailable = audioTrackAvailable,
+                    recordingState = audioRecordingState,
+                    onRecordingToggle = onAudioRecordingToggle,
+                )
             }
         }
         snapshotPreview?.let {
@@ -380,6 +401,9 @@ private fun VideoTab(
     heartbeatIntervalSec: Int,
     onCommand: (CommandType) -> Unit,
     onTakePhoto: () -> Unit,
+    trackAvailable: Boolean,
+    recordingState: LocalRecordingState,
+    onRecordingToggle: () -> Unit,
     videoContent: @Composable () -> Unit,
 ) {
     val streaming = item.status?.cameraStreaming == true
@@ -399,7 +423,7 @@ private fun VideoTab(
             },
             action = {
                 IconButton(
-                    enabled = streaming,
+                    enabled = streaming && !recordingState.isActive,
                     onClick = { onCommand(CommandType.SWITCH_CAMERA) },
                 ) {
                     Icon(
@@ -429,6 +453,12 @@ private fun VideoTab(
                     )
                 }
             },
+        )
+        RecordingControl(
+            title = "Registra video",
+            state = recordingState,
+            enabled = streaming && trackAvailable,
+            onToggle = onRecordingToggle,
         )
         Card(
             modifier = Modifier
@@ -462,6 +492,9 @@ private fun AudioTab(
     heartbeatIntervalSec: Int,
     audioLevel: Float,
     onCommand: (CommandType) -> Unit,
+    trackAvailable: Boolean,
+    recordingState: LocalRecordingState,
+    onRecordingToggle: () -> Unit,
 ) {
     val streaming = item.status?.microphoneStreaming == true
     Column(
@@ -479,12 +512,77 @@ private fun AudioTab(
                 onCommand(if (it) CommandType.START_AUDIO else CommandType.STOP_AUDIO)
             },
         )
+        RecordingControl(
+            title = "Registra audio",
+            state = recordingState,
+            enabled = streaming && trackAvailable,
+            onToggle = onRecordingToggle,
+        )
         AudioVisualizer(level = audioLevel, active = streaming)
         Text(
             if (streaming) "Livello audio in tempo reale" else "Audio non attivo",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+@Composable
+private fun RecordingControl(
+    title: String,
+    state: LocalRecordingState,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+) {
+    val recording = state is LocalRecordingState.Starting ||
+        state is LocalRecordingState.Recording
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    when (state) {
+                        LocalRecordingState.Idle -> "Massimo 30 minuti"
+                        LocalRecordingState.Starting -> "Avvio registrazione…"
+                        is LocalRecordingState.Recording ->
+                            "${RecordingPolicy.formatElapsed(state.elapsedMs)} / 30:00"
+                        LocalRecordingState.Finalizing -> "Salvataggio…"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            IconButton(
+                enabled = (enabled || recording) &&
+                    state !is LocalRecordingState.Finalizing,
+                onClick = onToggle,
+            ) {
+                Icon(
+                    if (recording) Icons.Outlined.StopCircle
+                    else Icons.Outlined.FiberManualRecord,
+                    contentDescription = if (recording) {
+                        "Ferma registrazione"
+                    } else {
+                        "Avvia registrazione"
+                    },
+                    modifier = Modifier.size(32.dp),
+                    tint = if (recording || enabled) {
+                        Color(0xFFFF5252)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
     }
 }
 
