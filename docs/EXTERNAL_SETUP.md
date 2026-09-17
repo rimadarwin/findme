@@ -156,6 +156,40 @@ La resilienza è composta da:
 - `BootReceiver` quando l'app è Device Owner;
 - stato online/offline derivato dal timestamp Supabase.
 
-FCM non è necessario sui telefoni Device Owner. Se si decide di supportare
-telefoni standard completamente chiusi, FCM può solo invitare l'utente ad aprire
-l'app: non può aggirare i vincoli Android su camera e microfono.
+FCM non è necessario per controllare camera e microfono sui telefoni Device
+Owner e non può aggirare i vincoli Android sui telefoni standard. È invece
+usato per consegnare al ricevitore gli avvisi area descritti di seguito.
+
+## 7. Firebase Cloud Messaging per gli avvisi area
+
+Gli avvisi di uscita area usano FCM e arrivano al ricevitore anche quando l’app
+non è aperta. Firebase Cloud Messaging non richiede un piano a pagamento.
+
+1. Creare un progetto nella Firebase Console.
+2. Aggiungere un’app Android con package `it.xcc.findme.receiver`.
+3. Scaricare `google-services.json` e copiarlo in `receiver/google-services.json`.
+   Il file è escluso da Git; senza di esso l’app compila, ma registra nei log che
+   le notifiche remote non sono configurate.
+4. Abilitare la Firebase Cloud Messaging API.
+5. In **Impostazioni progetto > Account di servizio**, generare una chiave JSON
+   e salvarla temporaneamente come `firebase-service-account.json` fuori dal
+   repository oppure nella root (il nome è escluso da Git).
+6. Salvare il JSON compresso nei secrets Supabase e distribuire la funzione:
+
+```powershell
+$firebase = Get-Content .\firebase-service-account.json -Raw |
+  ConvertFrom-Json |
+  ConvertTo-Json -Compress
+npx supabase secrets set "FIREBASE_SERVICE_ACCOUNT_JSON=$firebase"
+npx supabase functions deploy geofence-alert
+```
+
+Non inserire mai il service account nell’app, in `local.properties` o in Git.
+Dopo aver aggiunto `google-services.json`, ricostruire e reinstallare il
+ricevitore, aprirlo una volta e concedere il permesso notifiche. L’identificativo
+di installazione FCM viene registrato automaticamente in
+`receiver_push_tokens`.
+
+Il trasmettitore invoca `geofence-alert` solo se l’avviso area è attivo. La RPC
+atomica `evaluate_geofence` notifica una sola transizione interno→esterno; un
+rientro nell’area riarma l’avviso.

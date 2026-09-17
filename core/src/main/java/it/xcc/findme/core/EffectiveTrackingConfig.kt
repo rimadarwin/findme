@@ -105,3 +105,25 @@ object RouteSampler {
         }
     }
 }
+
+data class GeofenceTransition(
+    val isOutside: Boolean,
+    val shouldNotify: Boolean,
+)
+
+object GeofencePolicy {
+    val allowedRadiiM = setOf(50, 100, 250, 500, 1000)
+
+    fun evaluate(
+        wasOutside: Boolean,
+        distanceM: Double,
+        radiusM: Int,
+    ): GeofenceTransition {
+        require(radiusM in allowedRadiiM) { "Unsupported geofence radius" }
+        val outside = distanceM > radiusM
+        return GeofenceTransition(
+            isOutside = outside,
+            shouldNotify = outside && !wasOutside,
+        )
+    }
+}

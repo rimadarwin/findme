@@ -63,6 +63,15 @@ trasmettitore né il ricevitore mantengono una connessione LiveKit. Lo storico,
 con retention di 30 giorni, offre filtri 6h/24h/7 giorni o data/ora, percorso
 MapLibre, timeline e lista paginata.
 
+Dal tab Posizione è inoltre possibile:
+
+- aprire la mappa in modalità immersiva orizzontale, mantenendo coordinate e
+  controlli in un pannello laterale;
+- attivare un avviso area centrato sulla posizione corrente, con raggio
+  50/100/250/500/1000 metri;
+- ricevere una notifica FCM quando il trasmettitore passa dall’interno
+  all’esterno dell’area. L’avviso si riarma dopo il rientro.
+
 Non servono email o password. Il pairing iniziale usa un codice univoco di 10
 caratteri fornito durante il provisioning; il nome del dispositivo rimane
 soltanto un'etichetta leggibile. Dopo l'accesso è possibile cambiare ricevitore

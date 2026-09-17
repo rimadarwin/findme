@@ -164,6 +164,50 @@ class FindMeRepository(
         }
     }
 
+    suspend fun setGeofence(
+        receiverId: String,
+        transmitterId: String,
+        center: DeviceLocation?,
+        radiusM: Int?,
+    ) {
+        client.from("receiver_transmitters").update(
+            {
+                set("geofence_enabled", center != null && radiusM != null)
+                set("geofence_center_latitude", center?.latitude)
+                set("geofence_center_longitude", center?.longitude)
+                set("geofence_radius_m", radiusM)
+                set("geofence_is_outside", false)
+                set("geofence_updated_at", Instant.now().toString())
+            },
+        ) {
+            filter {
+                eq("receiver_id", receiverId)
+                eq("transmitter_id", transmitterId)
+            }
+        }
+    }
+
+    suspend fun registerReceiverPushToken(receiverId: String, token: String) {
+        client.from("receiver_push_tokens").upsert(
+            ReceiverPushToken(
+                token = token,
+                receiverId = receiverId,
+                updatedAt = Instant.now().toString(),
+            ),
+        )
+    }
+
+    suspend fun checkGeofence(location: DeviceLocation) {
+        client.functions.invoke(
+            function = "geofence-alert",
+            body = GeofenceCheckRequest(
+                deviceId = location.deviceId,
+                latitude = location.latitude,
+                longitude = location.longitude,
+            ),
+        )
+    }
+
     fun commands(deviceId: String): Flow<List<DeviceCommand>> = flow {
         val channel = client.channel("commands-$deviceId")
         val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {

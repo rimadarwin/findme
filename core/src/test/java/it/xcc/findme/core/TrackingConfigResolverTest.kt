@@ -118,6 +118,36 @@ class TrackingConfigResolverTest {
         assertTrue(sampled.size <= 1_500)
     }
 
+    @Test
+    fun `geofence notifies only when crossing from inside to outside`() {
+        val firstExit = GeofencePolicy.evaluate(
+            wasOutside = false,
+            distanceM = 101.0,
+            radiusM = 100,
+        )
+        val stillOutside = GeofencePolicy.evaluate(
+            wasOutside = true,
+            distanceM = 150.0,
+            radiusM = 100,
+        )
+        val reentered = GeofencePolicy.evaluate(
+            wasOutside = true,
+            distanceM = 90.0,
+            radiusM = 100,
+        )
+        val secondExit = GeofencePolicy.evaluate(
+            wasOutside = reentered.isOutside,
+            distanceM = 110.0,
+            radiusM = 100,
+        )
+
+        assertTrue(firstExit.shouldNotify)
+        assertFalse(stillOutside.shouldNotify)
+        assertFalse(reentered.isOutside)
+        assertTrue(secondExit.shouldNotify)
+        assertEquals(setOf(50, 100, 250, 500, 1000), GeofencePolicy.allowedRadiiM)
+    }
+
     private fun point(latitude: Double, longitude: Double, accuracy: Float) = DeviceLocation(
         deviceId = "transmitter",
         latitude = latitude,

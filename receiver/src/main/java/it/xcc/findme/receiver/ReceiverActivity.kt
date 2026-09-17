@@ -1,5 +1,10 @@
 package it.xcc.findme.receiver
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -25,6 +30,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import io.livekit.android.LiveKit
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
@@ -59,6 +68,7 @@ class ReceiverActivity : ComponentActivity() {
     private var selectedTab by mutableStateOf(DeviceTab.POSITION)
     private var showSettings by mutableStateOf(false)
     private var historyDeviceId by mutableStateOf<String?>(null)
+    private var fullscreenDeviceId by mutableStateOf<String?>(null)
     private var trackingSettings by mutableStateOf(ReceiverTrackingSettings(receiverId = ""))
     private var fastTrackingDeviceId by mutableStateOf<String?>(null)
     private var fastHistory by mutableStateOf(false)
@@ -76,10 +86,13 @@ class ReceiverActivity : ComponentActivity() {
     private var audioMeterJob: Job? = null
     private var connectionJob: Job? = null
     private var isForeground = false
+    private var pendingNotificationDeviceId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         identity = DeviceIdentity(this)
+        pendingNotificationDeviceId =
+            intent.getStringExtra(FindMeMessagingService.EXTRA_DEVICE_ID)
         if (AppConfig.isConfigured) {
             repository = runCatching { FindMeRepository() }.getOrNull()
         }
@@ -89,6 +102,17 @@ class ReceiverActivity : ComponentActivity() {
             }
         }
         initializeDevice()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val deviceId = intent.getStringExtra(FindMeMessagingService.EXTRA_DEVICE_ID) ?: return
+        if (devices.any { it.device.id == deviceId }) {
+            openDetail(deviceId)
+        } else {
+            pendingNotificationDeviceId = deviceId
+        }
     }
 
     override fun onStart() {
@@ -106,6 +130,7 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (fullscreenDeviceId != null) closeFullscreenMap()
         disconnectMedia()
         deviceJob?.cancel()
         profileJob?.cancel()
@@ -121,6 +146,40 @@ class ReceiverActivity : ComponentActivity() {
         }
         val historyDevice = historyDeviceId?.let { id ->
             devices.firstOrNull { it.device.id == id }
+        }
+        val fullscreenDevice = fullscreenDeviceId?.let { id ->
+            devices.firstOrNull { it.device.id == id }
+        }
+        if (fullscreenDevice != null) {
+            BackHandler(onBack = ::closeFullscreenMap)
+            PositionFullscreenScreen(
+                item = fullscreenDevice,
+                heartbeatIntervalSec = trackingSettings.heartbeatIntervalSec,
+                fastTrackingActive = fastTrackingDeviceId == fullscreenDevice.device.id,
+                fastHistoryActive =
+                    fastTrackingDeviceId == fullscreenDevice.device.id && fastHistory,
+                onFastTrackingChange = {
+                    if (it) {
+                        startFastTracking(fullscreenDevice.device.id)
+                    } else {
+                        stopFastTracking()
+                    }
+                },
+                onFastHistoryChange = {
+                    fastHistory = it
+                    renewFastTracking()
+                },
+                onGeofenceChange = { setGeofence(fullscreenDevice, it) },
+                onOpenHistory = {
+                    closeFullscreenMap()
+                    historyDeviceId = fullscreenDevice.device.id
+                },
+                onExit = ::closeFullscreenMap,
+            )
+            return
+        }
+        if (fullscreenDeviceId != null) {
+            LaunchedEffect(fullscreenDeviceId) { closeFullscreenMap() }
         }
         BackHandler(enabled = showSettings || historyDeviceId != null || selected != null) {
             when {
@@ -205,6 +264,12 @@ class ReceiverActivity : ComponentActivity() {
                             fastHistory = it
                             renewFastTracking()
                         },
+                        onGeofenceChange = {
+                            setGeofence(selected, it)
+                        },
+                        onFullscreen = {
+                            openFullscreenMap(selected.device.id)
+                        },
                         onOpenHistory = { historyDeviceId = selected.device.id },
                         videoContent = {
                             VideoSurface(
@@ -265,6 +330,7 @@ class ReceiverActivity : ComponentActivity() {
                 observeReceiverProfile()
                 observeTrackingSettings()
                 observeDevices()
+                initializePushNotifications()
             }.onFailure {
                 message = it.message ?: "Inizializzazione non riuscita."
             }
@@ -293,6 +359,12 @@ class ReceiverActivity : ComponentActivity() {
             runCatching {
                 repository!!.monitoredDevices().collect { rows ->
                     devices = rows
+                    pendingNotificationDeviceId?.let { pendingId ->
+                        if (rows.any { it.device.id == pendingId }) {
+                            openDetail(pendingId)
+                            pendingNotificationDeviceId = null
+                        }
+                    }
                     val selectedId = selectedDeviceId
                     if (selectedId != null && rows.none { it.device.id == selectedId }) {
                         closeDetail()
@@ -304,6 +376,24 @@ class ReceiverActivity : ComponentActivity() {
                 message = it.message ?: "Errore aggiornamento dispositivi."
             }
         }
+    }
+
+    private fun initializePushNotifications() {
+        GeofenceNotifications.createChannel(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1201)
+        }
+        if (FirebaseApp.getApps(this).isEmpty()) {
+            Log.w(TAG, "Firebase non configurato: google-services.json mancante")
+            return
+        }
+        FirebaseMessaging.getInstance().register()
+            .addOnFailureListener {
+                Log.e(TAG, "Registrazione FCM non riuscita", it)
+            }
     }
 
     private fun openDetail(deviceId: String) {
@@ -330,6 +420,7 @@ class ReceiverActivity : ComponentActivity() {
             historyMultiplier = update.historyMultiplier,
             onlyMovement = update.onlyMovement,
             heartbeatIntervalSec = update.heartbeatIntervalSec,
+            geofenceRadiusM = update.geofenceRadiusM,
         )
         lifecycleScope.launch {
             runCatching {
@@ -339,6 +430,45 @@ class ReceiverActivity : ComponentActivity() {
                 message = it.message ?: "Salvataggio impostazioni non riuscito."
             }
         }
+    }
+
+    private fun setGeofence(device: MonitoredDevice, enabled: Boolean) {
+        val center = device.location
+        if (enabled && center == null) {
+            message = "Posizione non disponibile: impossibile attivare l’avviso."
+            return
+        }
+        lifecycleScope.launch {
+            runCatching {
+                repository!!.setGeofence(
+                    receiverId = identity.id,
+                    transmitterId = device.device.id,
+                    center = center.takeIf { enabled },
+                    radiusM = trackingSettings.geofenceRadiusM.takeIf { enabled },
+                )
+            }.onSuccess {
+                message = ""
+            }.onFailure {
+                message = it.message ?: "Configurazione avviso area non riuscita."
+            }
+        }
+    }
+
+    private fun openFullscreenMap(deviceId: String) {
+        fullscreenDeviceId = deviceId
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.getInsetsController(window, window.decorView)
+            .hide(WindowInsetsCompat.Type.systemBars())
+    }
+
+    private fun closeFullscreenMap() {
+        if (fullscreenDeviceId == null) return
+        fullscreenDeviceId = null
+        WindowCompat.getInsetsController(window, window.decorView)
+            .show(WindowInsetsCompat.Type.systemBars())
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
     private fun startFastTracking(deviceId: String) {

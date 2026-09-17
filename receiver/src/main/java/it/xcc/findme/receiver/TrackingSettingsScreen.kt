@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -87,6 +88,16 @@ fun TrackingSettingsScreen(
             },
         )
         SettingOptions(
+            title = "Raggio avviso area",
+            description = "Distanza dal punto di attivazione oltre la quale inviare l’avviso.",
+            values = listOf(50, 100, 250, 500, 1000),
+            selected = settings.geofenceRadiusM,
+            label = { "$it m" },
+            onSelected = {
+                onChange(settings.toUpdate(geofenceRadiusM = it))
+            },
+        )
+        SettingOptions(
             title = "Heartbeat",
             description = "Frequenza dello stato online e della batteria.",
             values = listOf(30, 60, 90, 120),
@@ -128,7 +139,9 @@ private fun <T> SettingOptions(
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 values.forEach { value ->
@@ -183,10 +196,12 @@ private fun ReceiverTrackingSettings.toUpdate(
     historyMultiplier: Int = this.historyMultiplier,
     onlyMovement: Boolean = this.onlyMovement,
     heartbeatIntervalSec: Int = this.heartbeatIntervalSec,
+    geofenceRadiusM: Int = this.geofenceRadiusM,
 ) = TrackingSettingsUpdate(
     offlineLocationIntervalSec = offlineLocationIntervalSec,
     onlineLocationIntervalSec = onlineLocationIntervalSec,
     historyMultiplier = historyMultiplier,
     onlyMovement = onlyMovement,
     heartbeatIntervalSec = heartbeatIntervalSec,
+    geofenceRadiusM = geofenceRadiusM,
 )

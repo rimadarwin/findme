@@ -325,6 +325,13 @@ class MonitoringService : Service() {
                 runCatching {
                     repository.updateCurrentLocation(point)
                 }.onFailure { Log.e(TAG, "Location upload failed", it) }
+                if (trackingState?.relationship?.geofenceEnabled == true) {
+                    runCatching {
+                        repository.checkGeofence(point)
+                    }.onFailure {
+                        Log.e(TAG, "Geofence evaluation failed", it)
+                    }
+                }
                 persistHistoryIfNeeded(point)
             }
         }

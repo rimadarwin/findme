@@ -8,5 +8,7 @@ captures/
 .cxx/
 supabase/.temp/
 supabase/functions/.env
+**/google-services.json
+firebase-service-account*.json
 keystore.properties
 *.jks

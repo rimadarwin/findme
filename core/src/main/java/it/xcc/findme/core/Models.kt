@@ -97,6 +97,7 @@ data class ReceiverTrackingSettings(
     @EncodeDefault
     @SerialName("only_movement") val onlyMovement: Boolean = true,
     @SerialName("heartbeat_interval_sec") val heartbeatIntervalSec: Int = 60,
+    @SerialName("geofence_radius_m") val geofenceRadiusM: Int = 100,
 )
 
 @Serializable
@@ -107,6 +108,7 @@ data class TrackingSettingsUpdate(
     @EncodeDefault
     @SerialName("only_movement") val onlyMovement: Boolean,
     @SerialName("heartbeat_interval_sec") val heartbeatIntervalSec: Int,
+    @SerialName("geofence_radius_m") val geofenceRadiusM: Int,
 )
 
 @Serializable
@@ -124,6 +126,28 @@ data class ReceiverTransmitter(
     @SerialName("live_tracking_until") val liveTrackingUntil: String? = null,
     @EncodeDefault
     @SerialName("live_history") val liveHistory: Boolean = false,
+    @EncodeDefault
+    @SerialName("geofence_enabled") val geofenceEnabled: Boolean = false,
+    @SerialName("geofence_center_latitude") val geofenceCenterLatitude: Double? = null,
+    @SerialName("geofence_center_longitude") val geofenceCenterLongitude: Double? = null,
+    @SerialName("geofence_radius_m") val geofenceRadiusM: Int? = null,
+    @EncodeDefault
+    @SerialName("geofence_is_outside") val geofenceIsOutside: Boolean = false,
+    @SerialName("geofence_updated_at") val geofenceUpdatedAt: String? = null,
+)
+
+@Serializable
+data class ReceiverPushToken(
+    val token: String,
+    @SerialName("receiver_id") val receiverId: String,
+    @SerialName("updated_at") val updatedAt: String,
+)
+
+@Serializable
+data class GeofenceCheckRequest(
+    @SerialName("device_id") val deviceId: String,
+    val latitude: Double,
+    val longitude: Double,
 )
 
 data class TrackingRuntimeState(

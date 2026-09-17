@@ -15,6 +15,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.Timeline
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -56,6 +59,8 @@ fun DeviceDetailScreen(
     fastHistoryActive: Boolean,
     onFastTrackingChange: (Boolean) -> Unit,
     onFastHistoryChange: (Boolean) -> Unit,
+    onGeofenceChange: (Boolean) -> Unit,
+    onFullscreen: () -> Unit,
     onOpenHistory: () -> Unit,
     videoContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
@@ -86,6 +91,8 @@ fun DeviceDetailScreen(
                 fastHistoryActive = fastHistoryActive,
                 onFastTrackingChange = onFastTrackingChange,
                 onFastHistoryChange = onFastHistoryChange,
+                onGeofenceChange = onGeofenceChange,
+                onFullscreen = onFullscreen,
                 onOpenHistory = onOpenHistory,
             )
             DeviceTab.VIDEO -> VideoTab(item, heartbeatIntervalSec, onCommand, videoContent)
@@ -155,6 +162,8 @@ private fun PositionTab(
     fastHistoryActive: Boolean,
     onFastTrackingChange: (Boolean) -> Unit,
     onFastHistoryChange: (Boolean) -> Unit,
+    onGeofenceChange: (Boolean) -> Unit,
+    onFullscreen: () -> Unit,
     onOpenHistory: () -> Unit,
 ) {
     Column(
@@ -170,16 +179,71 @@ private fun PositionTab(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            Text(
-                "%.6f, %.6f  •  ±%.0f m".format(
-                    location.latitude,
-                    location.longitude,
-                    location.accuracy ?: 0f,
-                ),
-                color = MaterialTheme.colorScheme.primary,
+            PositionCoordinates(item, onFullscreen)
+            DeviceMap(
+                deviceName = item.displayName,
+                location = location,
+                geofence = item.relationship,
             )
-            DeviceMap(item.displayName, location)
         }
+        PositionControls(
+            item = item,
+            heartbeatIntervalSec = heartbeatIntervalSec,
+            fastTrackingActive = fastTrackingActive,
+            fastHistoryActive = fastHistoryActive,
+            onFastTrackingChange = onFastTrackingChange,
+            onFastHistoryChange = onFastHistoryChange,
+            onGeofenceChange = onGeofenceChange,
+            onOpenHistory = onOpenHistory,
+        )
+    }
+}
+
+@Composable
+internal fun PositionCoordinates(
+    item: MonitoredDevice,
+    onFullscreen: (() -> Unit)? = null,
+) {
+    val location = item.location ?: return
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "%.6f, %.6f  •  ±%.0f m".format(
+                location.latitude,
+                location.longitude,
+                location.accuracy ?: 0f,
+            ),
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.primary,
+        )
+        if (onFullscreen != null) {
+            IconButton(onClick = onFullscreen) {
+                Icon(
+                    Icons.Outlined.Fullscreen,
+                    contentDescription = "Mappa a schermo intero",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun PositionControls(
+    item: MonitoredDevice,
+    heartbeatIntervalSec: Int,
+    fastTrackingActive: Boolean,
+    fastHistoryActive: Boolean,
+    onFastTrackingChange: (Boolean) -> Unit,
+    onFastHistoryChange: (Boolean) -> Unit,
+    onGeofenceChange: (Boolean) -> Unit,
+    onOpenHistory: () -> Unit,
+) {
+    val geofence = item.relationship
+    val geofenceActive = geofence?.geofenceEnabled == true
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TrackingControl(
             title = "Aggiornamento rapido",
             description = "Richiede posizioni più frequenti finché questa vista resta attiva.",
@@ -203,6 +267,40 @@ private fun PositionTab(
             },
             onCheckedChange = onFastHistoryChange,
         )
+        TrackingControl(
+            title = "Avviso uscita area",
+            description = if (geofenceActive) {
+                val state = if (geofence?.geofenceIsOutside == true) "fuori area" else "dentro l’area"
+                "Raggio ${geofence?.geofenceRadiusM ?: 0} m • $state"
+            } else {
+                "Usa la posizione attuale come centro dell’area."
+            },
+            checked = geofenceActive,
+            enabled = geofenceActive ||
+                (item.location != null &&
+                    item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec)),
+            icon = {
+                Icon(
+                    if (geofenceActive) {
+                        Icons.Outlined.NotificationsActive
+                    } else {
+                        Icons.Outlined.NotificationsOff
+                    },
+                    contentDescription = null,
+                )
+            },
+            onCheckedChange = onGeofenceChange,
+        )
+        if (geofenceActive) {
+            Text(
+                "Centro %.6f, %.6f".format(
+                    geofence?.geofenceCenterLatitude ?: 0.0,
+                    geofence?.geofenceCenterLongitude ?: 0.0,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         TextButton(onClick = onOpenHistory) {
             Icon(Icons.Outlined.History, contentDescription = null)
             Text("  Consulta storico posizioni")
@@ -211,7 +309,7 @@ private fun PositionTab(
 }
 
 @Composable
-private fun TrackingControl(
+internal fun TrackingControl(
     title: String,
     description: String,
     checked: Boolean,
