@@ -63,6 +63,9 @@ trasmettitore né il ricevitore mantengono una connessione LiveKit. Lo storico,
 con retention di 30 giorni, offre filtri 6h/24h/7 giorni o data/ora, percorso
 MapLibre, timeline e lista paginata.
 
+Durante lo streaming video il ricevitore può cambiare fotocamera e salvare il
+fotogramma visualizzato nella galleria, dentro `Pictures/FindMe`.
+
 Dal tab Posizione è inoltre possibile:
 
 - aprire la mappa in modalità immersiva orizzontale, mantenendo coordinate e

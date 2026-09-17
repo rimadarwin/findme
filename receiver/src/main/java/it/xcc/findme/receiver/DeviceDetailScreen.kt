@@ -1,5 +1,6 @@
 package it.xcc.findme.receiver
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.Cameraswitch
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.Timeline
@@ -62,41 +65,58 @@ fun DeviceDetailScreen(
     onGeofenceChange: (Boolean) -> Unit,
     onFullscreen: () -> Unit,
     onOpenHistory: () -> Unit,
+    onTakePhoto: () -> Unit,
+    snapshotPreview: Bitmap?,
+    onSnapshotAnimationFinished: () -> Unit,
     videoContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        DeviceHeader(item, heartbeatIntervalSec, onBack, onAliasSave)
-        TabRow(
-            selectedTabIndex = selectedTab.ordinal,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary,
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            DeviceTab.entries.forEach { tab ->
-                Tab(
-                    selected = selectedTab == tab,
-                    onClick = { onTabSelected(tab) },
-                    text = { Text(tab.label) },
+            DeviceHeader(item, heartbeatIntervalSec, onBack, onAliasSave)
+            TabRow(
+                selectedTabIndex = selectedTab.ordinal,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary,
+            ) {
+                DeviceTab.entries.forEach { tab ->
+                    Tab(
+                        selected = selectedTab == tab,
+                        onClick = { onTabSelected(tab) },
+                        text = { Text(tab.label) },
+                    )
+                }
+            }
+            when (selectedTab) {
+                DeviceTab.POSITION -> PositionTab(
+                    item = item,
+                    heartbeatIntervalSec = heartbeatIntervalSec,
+                    fastTrackingActive = fastTrackingActive,
+                    fastHistoryActive = fastHistoryActive,
+                    onFastTrackingChange = onFastTrackingChange,
+                    onFastHistoryChange = onFastHistoryChange,
+                    onGeofenceChange = onGeofenceChange,
+                    onFullscreen = onFullscreen,
+                    onOpenHistory = onOpenHistory,
                 )
+                DeviceTab.VIDEO -> VideoTab(
+                    item = item,
+                    heartbeatIntervalSec = heartbeatIntervalSec,
+                    onCommand = onCommand,
+                    onTakePhoto = onTakePhoto,
+                    videoContent = videoContent,
+                )
+                DeviceTab.AUDIO -> AudioTab(item, heartbeatIntervalSec, audioLevel, onCommand)
             }
         }
-        when (selectedTab) {
-            DeviceTab.POSITION -> PositionTab(
-                item = item,
-                heartbeatIntervalSec = heartbeatIntervalSec,
-                fastTrackingActive = fastTrackingActive,
-                fastHistoryActive = fastHistoryActive,
-                onFastTrackingChange = onFastTrackingChange,
-                onFastHistoryChange = onFastHistoryChange,
-                onGeofenceChange = onGeofenceChange,
-                onFullscreen = onFullscreen,
-                onOpenHistory = onOpenHistory,
+        snapshotPreview?.let {
+            SnapshotCaptureAnimation(
+                bitmap = it,
+                onFinished = onSnapshotAnimationFinished,
             )
-            DeviceTab.VIDEO -> VideoTab(item, heartbeatIntervalSec, onCommand, videoContent)
-            DeviceTab.AUDIO -> AudioTab(item, heartbeatIntervalSec, audioLevel, onCommand)
         }
     }
 }
@@ -359,6 +379,7 @@ private fun VideoTab(
     item: MonitoredDevice,
     heartbeatIntervalSec: Int,
     onCommand: (CommandType) -> Unit,
+    onTakePhoto: () -> Unit,
     videoContent: @Composable () -> Unit,
 ) {
     val streaming = item.status?.cameraStreaming == true
@@ -381,14 +402,30 @@ private fun VideoTab(
                     enabled = streaming,
                     onClick = { onCommand(CommandType.SWITCH_CAMERA) },
                 ) {
-                    Text(
-                        "↻",
-                        color = if (streaming) {
+                    Icon(
+                        Icons.Outlined.Cameraswitch,
+                        contentDescription = "Cambia fotocamera",
+                        modifier = Modifier.size(30.dp),
+                        tint = if (streaming) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                }
+                IconButton(
+                    enabled = streaming,
+                    onClick = onTakePhoto,
+                ) {
+                    Icon(
+                        Icons.Outlined.CameraAlt,
+                        contentDescription = "Scatta foto",
+                        modifier = Modifier.size(28.dp),
+                        tint = if (streaming) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 }
             },

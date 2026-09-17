@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -54,10 +55,12 @@ import it.xcc.findme.core.ReceiverTrackingSettings
 import it.xcc.findme.core.TrackingSettingsUpdate
 import java.time.Instant
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ReceiverActivity : ComponentActivity() {
     private var repository: FindMeRepository? = null
@@ -80,6 +83,7 @@ class ReceiverActivity : ComponentActivity() {
     private var room: Room? = null
     private var roomDeviceId: String? = null
     private var renderer: TextureViewRenderer? = null
+    private var snapshotPreview by mutableStateOf<Bitmap?>(null)
     private var deviceJob: Job? = null
     private var profileJob: Job? = null
     private var settingsJob: Job? = null
@@ -313,6 +317,9 @@ class ReceiverActivity : ComponentActivity() {
                             openFullscreenMap(selected.device.id)
                         },
                         onOpenHistory = { historyDeviceId = selected.device.id },
+                        onTakePhoto = { takeVideoSnapshot(selected) },
+                        snapshotPreview = snapshotPreview,
+                        onSnapshotAnimationFinished = ::clearSnapshotAnimation,
                         videoContent = {
                             VideoSurface(
                                 streaming = selected.status?.cameraStreaming == true,
@@ -445,12 +452,19 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun closeDetail() {
+        clearSnapshotAnimation()
         selectedDeviceId?.let(::stopAllStreams)
         stopFastTracking()
         selectedDeviceId = null
         selectedTab = DeviceTab.POSITION
         message = ""
         disconnectMedia()
+    }
+
+    private fun clearSnapshotAnimation() {
+        val completedPreview = snapshotPreview
+        snapshotPreview = null
+        window.decorView.post { completedPreview?.recycle() }
     }
 
     private fun saveTrackingSettings(update: TrackingSettingsUpdate) {
@@ -492,6 +506,54 @@ class ReceiverActivity : ComponentActivity() {
                 message = ""
             }.onFailure {
                 message = it.message ?: "Configurazione avviso area non riuscita."
+            }
+        }
+    }
+
+    private fun takeVideoSnapshot(device: MonitoredDevice) {
+        if (snapshotPreview != null) return
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 1202)
+            message = "Concedi l’accesso alle foto e premi nuovamente il pulsante."
+            return
+        }
+        val videoRenderer = renderer
+        if (videoRenderer == null || !videoRenderer.isAvailable) {
+            message = "Il fotogramma video non è ancora disponibile."
+            return
+        }
+        val bitmap = videoRenderer.bitmap
+        if (bitmap == null || bitmap.width == 0 || bitmap.height == 0) {
+            message = "Attendi la visualizzazione del video prima di scattare."
+            return
+        }
+        val previewWidth = 320.coerceAtMost(bitmap.width)
+        val previewHeight = (bitmap.height * (previewWidth.toFloat() / bitmap.width))
+            .toInt()
+            .coerceAtLeast(1)
+        snapshotPreview = Bitmap.createScaledBitmap(
+            bitmap,
+            previewWidth,
+            previewHeight,
+            true,
+        )
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    VideoSnapshotStorage.save(
+                        context = applicationContext,
+                        bitmap = bitmap,
+                        deviceName = device.displayName,
+                    )
+                }.also { bitmap.recycle() }
+            }
+            result.onSuccess {
+                message = ""
+            }.onFailure {
+                message = it.message ?: "Salvataggio della foto non riuscito."
             }
         }
     }

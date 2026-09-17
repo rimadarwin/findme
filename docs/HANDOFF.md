@@ -50,6 +50,8 @@ Evoluzioni implementate e validate sui dispositivi reali:
   all’attivazione, overlay MapLibre e transizioni uscita/rientro idempotenti;
 - notifiche FCM al ricevitore anche ad app chiusa, con token protetti da RLS e
   invio tramite Edge Function.
+- acquisizione di un fotogramma dal video remoto e salvataggio nella galleria
+  del ricevitore in `Pictures/FindMe`.
 
 Le migrazioni `202609160005_media_state.sql`,
 `202609170001_receiver_device_alias.sql` e
