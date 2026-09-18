@@ -1097,7 +1097,9 @@ class ReceiverActivity : ComponentActivity() {
 
     private fun openScreenFullscreen(deviceId: String) {
         screenFullscreenDeviceId = deviceId
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        // Keep the mirrored screen stable until the user exits fullscreen.
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        Log.d(TAG, "Fullscreen orientation locked to portrait")
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.decorView.post(::hideSystemBars)
     }
@@ -1115,7 +1117,9 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun enterImmersiveLandscape() {
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        // Maps stay in one landscape orientation instead of following the sensor.
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        Log.d(TAG, "Fullscreen orientation locked to landscape")
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.decorView.post(::hideSystemBars)
     }
@@ -1133,6 +1137,7 @@ class ReceiverActivity : ComponentActivity() {
             .show(WindowInsetsCompat.Type.systemBars())
         WindowCompat.setDecorFitsSystemWindows(window, true)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        Log.d(TAG, "Fullscreen orientation unlocked; system preference restored")
     }
 
     private fun startFastTracking(deviceId: String) {
