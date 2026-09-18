@@ -10,6 +10,8 @@ MVP iniziale implementato:
 - migrazione Supabase con RLS;
 - Edge Function per token LiveKit;
 - Device Owner e ripartenza al boot;
+- provisioning Device Owner QR per Android 12+ con attività DPC moderne,
+  admin extras, firma release parametrica e generatore locale di checksum/QR;
 - test unitari sul rilevamento online/offline.
 
 Evoluzioni implementate e validate sui dispositivi reali:
@@ -65,14 +67,17 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - esenzione dall’ottimizzazione batteria richiedibile dalla dashboard del
   trasmettitore; sui firmware Xiaomi resta necessaria anche l’impostazione
   proprietaria “Nessuna restrizione”.
+- cancellazione selettiva dello storico dalle configurazioni del ricevitore,
+  con selezione multipla, doppia conferma e RPC autorizzata lato database.
 
 Le migrazioni `202609160005_media_state.sql`,
 `202609170001_receiver_device_alias.sql` e
 `202609170002_tracking_performance.sql`, inclusa la correzione RLS
 `202609170003_tracking_policy_fix.sql`, e
 `202609170004_geofence_alert.sql` e
-`202609170005_screen_mirroring.sql` devono essere applicate prima di installare
-le nuove versioni delle app.
+`202609170005_screen_mirroring.sql` e
+`202609180001_delete_location_history.sql` devono essere applicate prima di
+installare le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano
 `@EncodeDefault`, perché Supabase deve ricevere esplicitamente anche `false`.
@@ -86,8 +91,7 @@ Function seguendo `docs/EXTERNAL_SETUP.md`.
 
 ## Evoluzioni dopo validazione su telefoni reali
 
-- provisioning Device Owner tramite QR/Android Management anziché ADB;
-- notifiche FCM per telefoni non gestiti;
+- validazione end-to-end del QR sui Setup Wizard Xiaomi/Samsung scelti;
 - miniature video multiple con simulcast;
 - test strumentali su Android 14/15 e dispositivi dei produttori scelti;
-- firma release e pipeline CI.
+- pubblicazione protetta degli APK release e pipeline CI.

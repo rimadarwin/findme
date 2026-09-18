@@ -58,7 +58,7 @@ fun ReceiverHomeScreen(
                 IconButton(onClick = onSettingsClick) {
                     Icon(
                         Icons.Outlined.Settings,
-                        contentDescription = "Impostazioni tracking",
+                        contentDescription = "Configurazioni generali",
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 }

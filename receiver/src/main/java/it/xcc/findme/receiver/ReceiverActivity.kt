@@ -56,6 +56,7 @@ import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
 import it.xcc.findme.core.DeviceRole
 import it.xcc.findme.core.FindMeRepository
+import it.xcc.findme.core.LocationHistoryDeletionPolicy
 import it.xcc.findme.core.MediaConnectionPolicy
 import it.xcc.findme.core.MonitoredDevice
 import it.xcc.findme.core.ReceiverProfile
@@ -99,6 +100,8 @@ class ReceiverActivity : ComponentActivity() {
     private var fastTrackingDeviceId by mutableStateOf<String?>(null)
     private var fastHistory by mutableStateOf(false)
     private var message by mutableStateOf("")
+    private var historyDeletionInProgress by mutableStateOf(false)
+    private var historyDeletionMessage by mutableStateOf("")
     private var audioLevel by mutableFloatStateOf(0f)
     private var cameraTrack by mutableStateOf<VideoTrack?>(null)
     private var screenTrack by mutableStateOf<VideoTrack?>(null)
@@ -365,8 +368,12 @@ class ReceiverActivity : ComponentActivity() {
                     !ready -> Text("Inizializzazione sicura del dispositivo…")
                     showSettings -> TrackingSettingsScreen(
                         settings = trackingSettings,
+                        devices = devices,
+                        historyDeletionInProgress = historyDeletionInProgress,
+                        historyDeletionMessage = historyDeletionMessage,
                         onBack = { showSettings = false },
                         onChange = ::saveTrackingSettings,
+                        onDeleteHistory = ::deleteLocationHistory,
                         modifier = Modifier.weight(1f),
                     )
                     historyDeviceId != null -> Text("Dispositivo non più disponibile.")
@@ -377,7 +384,10 @@ class ReceiverActivity : ComponentActivity() {
                         heartbeatIntervalSec = trackingSettings.heartbeatIntervalSec,
                         onDeviceClick = ::openDetail,
                         onAliasSave = ::updateAlias,
-                        onSettingsClick = { showSettings = true },
+                        onSettingsClick = {
+                            historyDeletionMessage = ""
+                            showSettings = true
+                        },
                         modifier = Modifier.weight(1f),
                     )
                     else -> DeviceDetailScreen(
@@ -713,6 +723,39 @@ class ReceiverActivity : ComponentActivity() {
                 trackingSettings = previous
                 requestDataPlaneRecovery(it, "Salvataggio impostazioni non riuscito.")
             }
+        }
+    }
+
+    private fun deleteLocationHistory(selectedDeviceIds: Set<String>) {
+        val associatedDeviceIds = devices.mapTo(mutableSetOf()) { it.device.id }
+        if (!LocationHistoryDeletionPolicy.isValidSelection(
+                associatedDeviceIds = associatedDeviceIds,
+                selectedDeviceIds = selectedDeviceIds,
+            )
+        ) {
+            Log.w(TAG, "Rejected invalid history deletion selection: $selectedDeviceIds")
+            message = "Selezione trasmettitori non valida."
+            return
+        }
+
+        historyDeletionInProgress = true
+        historyDeletionMessage = ""
+        lifecycleScope.launch {
+            runCatching {
+                repository!!.deleteLocationHistory(identity.id, selectedDeviceIds)
+            }.onSuccess {
+                Log.i(TAG, "Location history deleted for ${selectedDeviceIds.size} transmitters")
+                message = ""
+                historyDeletionMessage = if (selectedDeviceIds.size == 1) {
+                    "Storico delle posizioni cancellato."
+                } else {
+                    "Storico delle posizioni cancellato per ${selectedDeviceIds.size} trasmettitori."
+                }
+            }.onFailure {
+                Log.e(TAG, "Unable to delete location history", it)
+                requestDataPlaneRecovery(it, "Cancellazione dello storico non riuscita.")
+            }
+            historyDeletionInProgress = false
         }
     }
 

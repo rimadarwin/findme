@@ -32,7 +32,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -349,6 +351,26 @@ class FindMeRepository(
                 put("max_points", maxPoints)
             },
         ).decodeList()
+    }
+
+    suspend fun deleteLocationHistory(
+        receiverId: String,
+        transmitterIds: Set<String>,
+    ) {
+        require(transmitterIds.isNotEmpty()) { "Seleziona almeno un trasmettitore" }
+        ensureAuthenticated()
+        client.postgrest.rpc(
+            function = "delete_receiver_location_history",
+            parameters = buildJsonObject {
+                put("target_receiver_id", receiverId)
+                put(
+                    "target_transmitter_ids",
+                    buildJsonArray {
+                        transmitterIds.sorted().forEach(::add)
+                    },
+                )
+            },
+        )
     }
 
     suspend fun liveKitToken(deviceId: String, mode: String): LiveKitTokenResponse {

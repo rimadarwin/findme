@@ -66,6 +66,10 @@ Nel tab **Posizione**, l’occhio abilita temporaneamente il tracking rapido.
 storico. La sessione scade automaticamente dopo 90 secondi e viene rinnovata
 solo mentre la vista è attiva.
 
+Da **Configurazioni generali** è possibile cancellare definitivamente lo
+storico scegliendo uno o più trasmettitori associati e confermando
+esplicitamente l’operazione.
+
 Audio, video e mirroring schermo sono realmente on-demand: senza uno stream attivo, né il
 trasmettitore né il ricevitore mantengono una connessione LiveKit. Lo storico,
 con retention di 30 giorni, offre filtri 6h/24h/7 giorni o data/ora, percorso
@@ -107,10 +111,15 @@ soltanto un hash bcrypt.
 
 Per database, Edge Function, LiveKit, mappe e Device Owner vedere
 [`docs/EXTERNAL_SETUP.md`](docs/EXTERNAL_SETUP.md).
+Per creare una build firmata e un QR Device Owner completo vedere
+[`docs/QR_PROVISIONING.md`](docs/QR_PROVISIONING.md).
 
 ## Limiti intenzionali
 
 - Notifica foreground e indicatori privacy Android restano visibili.
 - In modalità standard, dopo reboot è necessario aprire l'app trasmittente.
-- Il riavvio completamente automatico richiede il provisioning Device Owner.
+- Il provisioning QR Device Owner abilita il ripristino automatico del
+  monitoraggio e pre-approva i permessi gestibili da Android.
+- Il consenso MediaProjection per il mirroring non è concedibile dal Device
+  Owner e va riconfermato dopo riavvio o revoca.
 - Camera e schermo possono essere pubblicati insieme e sono visualizzati in tab separati.

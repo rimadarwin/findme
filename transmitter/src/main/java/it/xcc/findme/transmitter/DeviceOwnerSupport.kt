@@ -6,7 +6,8 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.PersistableBundle
+import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import it.xcc.findme.core.DeviceIdentity
 
@@ -14,19 +15,13 @@ class FindMeDeviceAdminReceiver : DeviceAdminReceiver() {
     @Suppress("DEPRECATION")
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
-        val extras = intent.getParcelableExtra<PersistableBundle>(
-            DevicePolicyManager.EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE,
-        )
-        extras
-            ?.getString(PROVISIONING_RECEIVER_CODE)
-            ?.trim()
-            ?.uppercase()
-            ?.takeIf { it.length == 10 }
-            ?.let { DeviceIdentity(context).provisionedReceiverCode = it }
+        ProvisioningPolicy.persistReceiverCode(context, intent)
+        DeviceOwnerSupport.grantMonitoringPermissions(context)
+        Log.i(TAG, "Legacy Device Owner provisioning completed")
     }
 
     private companion object {
-        const val PROVISIONING_RECEIVER_CODE = "findme_receiver_code"
+        const val TAG = "FindMeProvisioning"
     }
 }
 
@@ -39,21 +34,37 @@ object DeviceOwnerSupport {
         if (!isDeviceOwner(context)) return false
         val manager = context.getSystemService(DevicePolicyManager::class.java)
         val admin = ComponentName(context, FindMeDeviceAdminReceiver::class.java)
-        listOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-        ).forEach { permission ->
-            manager.setPermissionGrantState(
-                admin,
-                context.packageName,
-                permission,
-                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
-            )
+        val permissions = buildList {
+            add(Manifest.permission.CAMERA)
+            add(Manifest.permission.RECORD_AUDIO)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
-        return true
+        var allGranted = true
+        permissions.forEach { permission ->
+            val granted = runCatching {
+                manager.setPermissionGrantState(
+                    admin,
+                    context.packageName,
+                    permission,
+                    DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
+                )
+            }.onFailure { error ->
+                Log.e(TAG, "Unable to grant provisioning permission $permission", error)
+            }.getOrDefault(false)
+            allGranted = allGranted && granted
+            Log.d(TAG, "Provisioning permission $permission granted=$granted")
+        }
+        return allGranted
     }
+
+    private const val TAG = "FindMeProvisioning"
 }
 
 class BootReceiver : android.content.BroadcastReceiver() {

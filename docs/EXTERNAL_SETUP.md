@@ -20,7 +20,10 @@ replica Realtime e policy RLS. La migrazione
 `202609170002_tracking_performance.sql` aggiunge impostazioni adattive, lease
 temporanei e la RPC protetta per il percorso storico; la successiva
 `202609170003_tracking_policy_fix.sql` rende la lettura RLS non ricorsiva. Non
-disabilitare RLS.
+disabilitare RLS. La migrazione
+`202609180001_delete_location_history.sql` abilita la cancellazione dello
+storico soltanto per trasmettitori associati a un ricevitore posseduto
+dall’utente autenticato.
 
 ### Identità automatica
 
@@ -124,9 +127,13 @@ l'app esegue il pairing senza mostrare una schermata preliminare. La prima
 schermata visibile è quindi sempre la domanda di accesso.
 
 Il comando ADB `dpm set-device-owner` non supporta admin extras: in sviluppo il
-dispositivo deve essere già associato nel database oppure va usato un QR di
-provisioning completo. Poi premere almeno una volta **Avvia monitoraggio**.
-Il flag viene conservato e `BootReceiver` ripristina il servizio ai riavvii.
+dispositivo deve essere già associato nel database oppure va usato il
+provisioning completo. Build firmata, checksum, generazione locale del QR e
+procedura sul telefono sono descritti in
+[`QR_PROVISIONING.md`](QR_PROVISIONING.md).
+
+Poi premere almeno una volta **Avvia monitoraggio**. Il flag viene conservato e
+`BootReceiver` ripristina il servizio ai riavvii.
 
 Per rimuovere il Device Owner durante lo sviluppo potrebbe essere necessario un
 factory reset; verificare questa procedura sul dispositivo di test prima del
