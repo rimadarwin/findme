@@ -82,6 +82,9 @@ Il ricevitore può inoltre registrare clip locali indipendenti: video senza
 audio in `Movies/FindMe` (`.mp4`) e audio in `Music/FindMe` (`.m4a`). La
 registrazione usa start/stop manuale, si arresta automaticamente lasciando il
 tab o interrompendo lo stream e ha un limite di sicurezza di 30 minuti.
+Durante streaming o registrazione il ricevitore mantiene temporaneamente
+schermo e CPU attivi. Un blocco manuale non interrompe la sessione; passando
+volontariamente a un’altra app gli stream vengono invece chiusi.
 
 Il tab **Schermo** visualizza e registra in MP4 lo schermo del trasmettitore.
 Android richiede una conferma MediaProjection al primo setup e nuovamente dopo

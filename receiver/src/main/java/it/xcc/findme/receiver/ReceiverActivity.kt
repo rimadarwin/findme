@@ -1,6 +1,7 @@
 package it.xcc.findme.receiver
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -9,8 +10,10 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -60,6 +63,7 @@ import it.xcc.findme.core.LocationHistoryDeletionPolicy
 import it.xcc.findme.core.MediaConnectionPolicy
 import it.xcc.findme.core.MonitoredDevice
 import it.xcc.findme.core.ReceiverProfile
+import it.xcc.findme.core.ReceiverPowerPolicy
 import it.xcc.findme.core.ReceiverTrackingSettings
 import it.xcc.findme.core.TrackingSettingsUpdate
 import it.xcc.findme.receiver.recording.AudioM4aRecorder
@@ -89,6 +93,9 @@ class ReceiverActivity : ComponentActivity() {
     private var ready by mutableStateOf(false)
     private var receiverProfile by mutableStateOf<ReceiverProfile?>(null)
     private var devices by mutableStateOf<List<MonitoredDevice>>(emptyList())
+    private lateinit var powerManager: PowerManager
+    private lateinit var mediaWakeLock: PowerManager.WakeLock
+    private var mediaPowerProtectionActive = false
     private var selectedDeviceId by mutableStateOf<String?>(null)
     private var selectedTab by mutableStateOf(DeviceTab.POSITION)
     private var showSettings by mutableStateOf(false)
@@ -160,6 +167,13 @@ class ReceiverActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         identity = DeviceIdentity(this)
         connectivityManager = getSystemService(ConnectivityManager::class.java)
+        powerManager = getSystemService(PowerManager::class.java)
+        mediaWakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            MEDIA_WAKE_LOCK_TAG,
+        ).apply {
+            setReferenceCounted(false)
+        }
         connectivityManager.registerDefaultNetworkCallback(networkCallback)
         pendingNotificationDeviceId =
             intent.getStringExtra(FindMeMessagingService.EXTRA_DEVICE_ID)
@@ -196,14 +210,25 @@ class ReceiverActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         isForeground = true
+        updateMediaPowerProtection()
         reconcileMediaConnection()
     }
 
     override fun onStop() {
         isForeground = false
-        selectedDeviceId?.let(::stopAllStreams)
-        stopFastTracking()
-        disconnectMedia()
+        if (ReceiverPowerPolicy.shouldKeepSessionWhenStopped(
+                screenInteractive = powerManager.isInteractive,
+                mediaActive = shouldMaintainMediaSession(),
+            )
+        ) {
+            Log.i(TAG, "Keeping active media session while receiver screen is locked")
+            updateMediaPowerProtection()
+        } else {
+            selectedDeviceId?.let(::stopAllStreams)
+            stopFastTracking()
+            disconnectMedia()
+            releaseMediaPowerProtection()
+        }
         super.onStop()
     }
 
@@ -212,6 +237,7 @@ class ReceiverActivity : ComponentActivity() {
         if (screenFullscreenDeviceId != null) closeScreenFullscreen()
         if (historyFullscreenActive) setHistoryFullscreen(false)
         disconnectMedia()
+        releaseMediaPowerProtection()
         dataPlaneJob?.cancel()
         trackingLeaseJob?.cancel()
         runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
@@ -661,6 +687,7 @@ class ReceiverActivity : ComponentActivity() {
                 }
             }
             reconcileMediaConnection()
+            updateMediaPowerProtection()
         }
     }
 
@@ -697,6 +724,7 @@ class ReceiverActivity : ComponentActivity() {
         selectedTab = DeviceTab.POSITION
         message = ""
         disconnectMedia()
+        updateMediaPowerProtection()
     }
 
     private fun clearSnapshotAnimation() {
@@ -837,6 +865,7 @@ class ReceiverActivity : ComponentActivity() {
             return
         }
         videoRecordingState = LocalRecordingState.Starting
+        updateMediaPowerProtection()
         lateinit var recorder: VideoMp4Recorder
         recorder = VideoMp4Recorder(
             context = applicationContext,
@@ -867,6 +896,7 @@ class ReceiverActivity : ComponentActivity() {
         runCatching { recorder.start(track) }.onFailure {
             videoRecorder = null
             videoRecordingState = LocalRecordingState.Idle
+            updateMediaPowerProtection()
             message = it.message ?: "Avvio registrazione video non riuscito."
         }
     }
@@ -892,6 +922,7 @@ class ReceiverActivity : ComponentActivity() {
         videoRecordingTimerJob = null
         videoRecorder = null
         videoRecordingState = LocalRecordingState.Idle
+        updateMediaPowerProtection()
         showRecordingResult("Video", result)
     }
 
@@ -903,6 +934,7 @@ class ReceiverActivity : ComponentActivity() {
             return
         }
         screenRecordingState = LocalRecordingState.Starting
+        updateMediaPowerProtection()
         lateinit var recorder: VideoMp4Recorder
         recorder = VideoMp4Recorder(
             context = applicationContext,
@@ -934,6 +966,7 @@ class ReceiverActivity : ComponentActivity() {
         runCatching { recorder.start(track) }.onFailure {
             screenRecorder = null
             screenRecordingState = LocalRecordingState.Idle
+            updateMediaPowerProtection()
             message = it.message ?: "Avvio registrazione schermo non riuscito."
         }
     }
@@ -959,6 +992,7 @@ class ReceiverActivity : ComponentActivity() {
         screenRecordingTimerJob = null
         screenRecorder = null
         screenRecordingState = LocalRecordingState.Idle
+        updateMediaPowerProtection()
         showRecordingResult("Schermo", result)
     }
 
@@ -970,6 +1004,7 @@ class ReceiverActivity : ComponentActivity() {
             return
         }
         audioRecordingState = LocalRecordingState.Starting
+        updateMediaPowerProtection()
         lateinit var recorder: AudioM4aRecorder
         recorder = AudioM4aRecorder(
             context = applicationContext,
@@ -1000,6 +1035,7 @@ class ReceiverActivity : ComponentActivity() {
         runCatching { recorder.start(track) }.onFailure {
             audioRecorder = null
             audioRecordingState = LocalRecordingState.Idle
+            updateMediaPowerProtection()
             message = it.message ?: "Avvio registrazione audio non riuscito."
         }
     }
@@ -1025,6 +1061,7 @@ class ReceiverActivity : ComponentActivity() {
         audioRecordingTimerJob = null
         audioRecorder = null
         audioRecordingState = LocalRecordingState.Idle
+        updateMediaPowerProtection()
         showRecordingResult("Audio", result)
     }
 
@@ -1214,7 +1251,7 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun reconcileMediaConnection() {
-        if (!isForeground) {
+        if (!isForeground && !shouldMaintainMediaSession()) {
             disconnectMedia()
             return
         }
@@ -1235,6 +1272,45 @@ class ReceiverActivity : ComponentActivity() {
                 selected?.device?.id?.let(::connectTo)
             !shouldConnect -> disconnectMedia()
         }
+    }
+
+    private fun shouldMaintainMediaSession(): Boolean {
+        val selectedStatus = selectedDeviceId
+            ?.let { selectedId -> devices.firstOrNull { it.device.id == selectedId } }
+            ?.status
+        return ReceiverPowerPolicy.shouldProtectMedia(
+            cameraStreaming = selectedStatus?.cameraStreaming == true,
+            microphoneStreaming = selectedStatus?.microphoneStreaming == true,
+            screenStreaming = selectedStatus?.screenStreaming == true,
+            videoRecording = videoRecordingState.isActive,
+            audioRecording = audioRecordingState.isActive,
+            screenRecording = screenRecordingState.isActive,
+        )
+    }
+
+    @SuppressLint("WakelockTimeout")
+    private fun updateMediaPowerProtection() {
+        val shouldProtect = shouldMaintainMediaSession()
+        if (shouldProtect) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (!mediaWakeLock.isHeld) mediaWakeLock.acquire()
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (mediaWakeLock.isHeld) mediaWakeLock.release()
+        }
+        if (mediaPowerProtectionActive != shouldProtect) {
+            mediaPowerProtectionActive = shouldProtect
+            Log.i(TAG, "Receiver media power protection active=$shouldProtect")
+        }
+    }
+
+    private fun releaseMediaPowerProtection() {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (::mediaWakeLock.isInitialized && mediaWakeLock.isHeld) {
+            mediaWakeLock.release()
+        }
+        mediaPowerProtectionActive = false
+        Log.i(TAG, "Receiver media power protection released")
     }
 
     private fun updateAlias(transmitterId: String, alias: String) {
@@ -1458,6 +1534,7 @@ class ReceiverActivity : ComponentActivity() {
 
     private companion object {
         const val TAG = "FindMeReceiver"
+        const val MEDIA_WAKE_LOCK_TAG = "FindMe:ReceiverMedia"
         const val AUDIO_METER_INTERVAL_MS = 100L
         const val MEDIA_RECONNECT_DELAY_MS = 2_000L
         const val TRACKING_LEASE_DURATION_SEC = 90L

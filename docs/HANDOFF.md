@@ -61,6 +61,9 @@ Evoluzioni implementate e validate sui dispositivi reali:
   schermo H.264/MP4 in `Movies/FindMe` e audio AAC/M4A in `Music/FindMe`, con
   REC manuale, timer, limite 30 minuti e finalizzazione automatica su uscita
   dal tab, stop stream o disconnessione.
+- protezione energetica temporanea del ricevitore durante media e registrazioni:
+  `FLAG_KEEP_SCREEN_ON`, wake lock CPU e mantenimento LiveKit durante il blocco
+  schermo, con rilascio automatico alla chiusura degli stream.
 - resilienza di rete end-to-end: client Supabase unico per processo, refresh
   sessione esplicito, rinnovo periodico Realtime, watchdog heartbeat, retry
   esponenziale e riavvio immediato del piano dati al ritorno della rete.
