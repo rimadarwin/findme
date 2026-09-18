@@ -17,6 +17,13 @@ class ConnectionRecoveryPolicyTest {
     }
 
     @Test
+    fun `session refresh becomes due after elapsed deep sleep time`() {
+        assertTrue(ConnectionRecoveryPolicy.isSessionRefreshDue(0, 1))
+        assertFalse(ConnectionRecoveryPolicy.isSessionRefreshDue(1_000, 1_200_999))
+        assertTrue(ConnectionRecoveryPolicy.isSessionRefreshDue(1_000, 1_201_000))
+    }
+
+    @Test
     fun `heartbeat watchdog allows two configured intervals with a floor`() {
         assertFalse(ConnectionRecoveryPolicy.isHeartbeatStale(1_000, 91_000, 30))
         assertTrue(ConnectionRecoveryPolicy.isHeartbeatStale(1_000, 91_001, 30))

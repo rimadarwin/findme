@@ -5,6 +5,7 @@
 
 package it.xcc.findme.core
 
+import android.os.SystemClock
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
@@ -45,10 +46,12 @@ class FindMeRepository(
 
     suspend fun ensureAuthenticated(forceRefresh: Boolean = false) {
         processAuthenticationMutex.withLock {
-            val nowNanos = System.nanoTime()
-            val refreshDue = lastSessionRefreshAtNanos == 0L ||
-                (nowNanos - lastSessionRefreshAtNanos) / 1_000_000L >=
-                ConnectionRecoveryPolicy.SESSION_REFRESH_INTERVAL_MS
+            // elapsedRealtime includes deep sleep; nanoTime can make an expired JWT look recent.
+            val nowElapsedMs = SystemClock.elapsedRealtime()
+            val refreshDue = ConnectionRecoveryPolicy.isSessionRefreshDue(
+                lastRefreshElapsedMs = lastSessionRefreshAtElapsedMs,
+                nowElapsedMs = nowElapsedMs,
+            )
             if (!forceRefresh && !refreshDue) return@withLock
 
             withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
@@ -59,7 +62,7 @@ class FindMeRepository(
                     client.auth.signInAnonymously()
                 }
             }
-            lastSessionRefreshAtNanos = System.nanoTime()
+            lastSessionRefreshAtElapsedMs = SystemClock.elapsedRealtime()
         }
     }
 
@@ -359,7 +362,7 @@ class FindMeRepository(
     companion object {
         // A single client and mutex prevent concurrent refresh-token rotation in one app process.
         private val processAuthenticationMutex = Mutex()
-        private var lastSessionRefreshAtNanos = 0L
+        private var lastSessionRefreshAtElapsedMs = 0L
         private val processClient: SupabaseClient by lazy { createClient() }
 
         private fun createClient(): SupabaseClient {

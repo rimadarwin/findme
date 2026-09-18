@@ -11,6 +11,10 @@ object ConnectionRecoveryPolicy {
         return (INITIAL_RETRY_DELAY_MS shl exponent).coerceAtMost(MAX_RETRY_DELAY_MS)
     }
 
+    fun isSessionRefreshDue(lastRefreshElapsedMs: Long, nowElapsedMs: Long): Boolean =
+        lastRefreshElapsedMs == 0L ||
+            nowElapsedMs - lastRefreshElapsedMs >= SESSION_REFRESH_INTERVAL_MS
+
     fun isHeartbeatStale(
         lastSuccessElapsedMs: Long,
         nowElapsedMs: Long,

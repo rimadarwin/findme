@@ -18,6 +18,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -77,6 +78,7 @@ class MonitoringService : Service() {
     private lateinit var repository: FindMeRepository
     private lateinit var locationClient: FusedLocationProviderClient
     private lateinit var connectivityManager: ConnectivityManager
+    private lateinit var monitoringWakeLock: PowerManager.WakeLock
     private var room: Room? = null
     private var controlPlaneJob: Job? = null
     private var mediaEventsJob: Job? = null
@@ -126,6 +128,12 @@ class MonitoringService : Service() {
         repository = FindMeRepository()
         locationClient = LocationServices.getFusedLocationProviderClient(this)
         connectivityManager = getSystemService(ConnectivityManager::class.java)
+        monitoringWakeLock = getSystemService(PowerManager::class.java).newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            WAKE_LOCK_TAG,
+        ).apply {
+            setReferenceCounted(false)
+        }
         connectivityManager.registerDefaultNetworkCallback(networkCallback)
         screenProjectionController = ScreenProjectionController(this, ::onScreenProjectionStopped)
         createNotificationChannel()
@@ -139,6 +147,7 @@ class MonitoringService : Service() {
         identity.monitoringEnabled = true
         val authorizingScreen = intent?.action == ACTION_AUTHORIZE_SCREEN
         startAsForeground(includeMediaProjection = authorizingScreen)
+        acquireMonitoringWakeLock()
         if (authorizingScreen) {
             activateScreenProjection(intent)
         }
@@ -153,6 +162,10 @@ class MonitoringService : Service() {
     override fun onDestroy() {
         locationClient.removeLocationUpdates(locationCallback)
         runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
+        if (::monitoringWakeLock.isInitialized && monitoringWakeLock.isHeld) {
+            monitoringWakeLock.release()
+            Log.i(TAG, "Monitoring wake lock released")
+        }
         scope.cancel()
         room?.disconnect()
         screenProjectionController.stop()
@@ -165,6 +178,14 @@ class MonitoringService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    @SuppressLint("WakelockTimeout")
+    private fun acquireMonitoringWakeLock() {
+        if (monitoringWakeLock.isHeld) return
+        // The foreground service must keep heartbeat and reconnect timers running in deep sleep.
+        monitoringWakeLock.acquire()
+        Log.i(TAG, "Monitoring wake lock acquired")
+    }
 
     private suspend fun maintainControlPlane() {
         var consecutiveFailures = 0
@@ -702,6 +723,7 @@ class MonitoringService : Service() {
         private const val CHANNEL_ID = "findme_monitoring"
         private const val TAG = "FindMeMonitoring"
         private const val NOTIFICATION_ID = 1101
+        private const val WAKE_LOCK_TAG = "FindMe:Monitoring"
         private const val TRACKING_EVALUATION_INTERVAL_MS = 1_000L
         private const val MEDIA_WATCHDOG_INTERVAL_MS = 5_000L
         private const val HEALTH_CHECK_INTERVAL_MS = 15 * 60 * 1_000L

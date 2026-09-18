@@ -482,6 +482,11 @@ class ReceiverActivity : ComponentActivity() {
                     room?.let(::initializeCameraRenderer)
                 }
             },
+            update = { view ->
+                localRenderer = view
+                cameraRenderer = view
+                room?.let(::initializeCameraRenderer)
+            },
         )
         LaunchedEffect(streaming, cameraTrack, localRenderer) {
             localRenderer?.let { view ->
@@ -499,9 +504,8 @@ class ReceiverActivity : ComponentActivity() {
                 view?.let {
                     cameraTrack?.removeRenderer(view)
                     view.clearImage()
-                    releaseRenderer(view)
                 }
-                if (cameraRenderer === view) cameraRenderer = null
+                // Keep the renderer initialized: Compose can reuse it across tab updates.
             }
         }
     }
