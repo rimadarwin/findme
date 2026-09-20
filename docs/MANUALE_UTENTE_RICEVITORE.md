@@ -154,6 +154,8 @@ La schermata mostra:
 
 Se compare **Posizione non ancora disponibile**, verificare che il
 trasmettitore sia online, abbia il GPS attivo e abbia concesso la posizione.
+La mappa OpenFreeMap può impiegare alcuni secondi: attendere il caricamento
+completo delle tile prima di interpretare la vista.
 
 ### 4.1 Aggiornamento rapido
 
@@ -240,9 +242,18 @@ Quando ci sono dati:
 I timestamp includono i secondi. Premere **Carica altri 50 punti** quando
 disponibile.
 
-Il fullscreen dello storico dispone la mappa a sinistra e slider/dettaglio a
-destra, senza duplicare l’elenco completo. Il tasto Indietro torna alla pagina
-precedente.
+Scorrendo verso il basso compare l’elenco **Punti registrati** con data, ora,
+coordinate e accuratezza per ogni riga.
+
+![Elenco punti dello storico](manuale/assets/receiver-15-storico-lista.jpg)
+
+### 5.3 Fullscreen dello storico
+
+L’icona fullscreen sulla mappa apre la modalità immersiva: percorso a sinistra
+e, a destra, slider e dettaglio del punto selezionato (senza l’elenco completo).
+Usare **Torna allo storico** o Indietro per chiudere.
+
+![Storico posizioni a schermo intero](manuale/assets/receiver-16-storico-fullscreen.jpg)
 
 ## 6. Video
 
@@ -257,7 +268,8 @@ mostra il flusso remoto (in questo esempio dalla **camera frontale**).
 
 1. Verificare che il dispositivo sia online.
 2. Attivare **Streaming video**.
-3. Attendere la connessione e la comparsa dell’immagine.
+3. Attendere qualche secondo finché l’anteprima non è nitida (connessione LiveKit
+   e fotocamera remota).
 4. Spegnere lo switch per terminare.
 
 LiveKit viene collegato soltanto mentre almeno uno stream è attivo.
@@ -265,8 +277,11 @@ LiveKit viene collegato soltanto mentre almeno uno stream è attivo.
 ### 6.2 Cambiare fotocamera
 
 Con video attivo premere l’icona con fotocamera e frecce. Il comando alterna
-camera frontale e posteriore. Durante una registrazione video il cambio è
-disabilitato.
+camera frontale e posteriore. Attendere di nuovo qualche secondo dopo il
+cambio prima di valutare la qualità dell’immagine. Durante una registrazione
+video il cambio è disabilitato.
+
+![Streaming video — camera posteriore](manuale/assets/receiver-07-video-posteriore.jpg)
 
 ### 6.3 Scattare una foto
 
@@ -350,8 +365,8 @@ Toccare l’icona dello schermo.
 
 ![Tab mirroring](manuale/assets/receiver-10-schermo.jpg)
 
-Nella schermata sopra il mirroring è **attivo** sul ricevitore (switch ON),
-con il trasmettitore già in stato **Pronto** nella dashboard.
+Nella schermata sopra il mirroring è **attivo** sul ricevitore (switch ON) e
+l’anteprima verticale mostra lo schermo remoto in tempo reale.
 
 ### 8.1 Avviare il mirroring
 
@@ -368,6 +383,8 @@ premere **Riattiva** e confermare la finestra Android.
 L’icona nell’angolo dell’anteprima apre la modalità immersiva verticale. Il
 contenuto usa proporzioni complete senza ritaglio. Premere il controllo in alto
 a destra o Indietro per uscire.
+
+![Mirroring a schermo intero](manuale/assets/receiver-14-schermo-fullscreen.jpg)
 
 Per registrare:
 

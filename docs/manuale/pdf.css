@@ -1,0 +1,16 @@
+body {
+  font-family: system-ui, sans-serif;
+  font-size: 11pt;
+  line-height: 1.45;
+}
+
+img {
+  display: block;
+  max-width: 50%;
+  height: auto;
+  margin: 0.75em auto;
+}
+
+table {
+  font-size: 10pt;
+}
