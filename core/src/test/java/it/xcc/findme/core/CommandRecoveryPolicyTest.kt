@@ -15,6 +15,7 @@ class CommandRecoveryPolicyTest {
                 command(5, CommandType.START_VIDEO),
                 command(6, CommandType.STOP_AUDIO),
                 command(7, CommandType.SWITCH_CAMERA),
+                command(8, CommandType.PLAY_VOICE_MESSAGE),
             ),
         )
 
@@ -24,6 +25,7 @@ class CommandRecoveryPolicyTest {
                 5L to CommandType.START_VIDEO,
                 6L to CommandType.STOP_AUDIO,
                 7L to CommandType.SWITCH_CAMERA,
+                8L to CommandType.PLAY_VOICE_MESSAGE,
             ),
             compacted.map { it.id to it.command },
         )

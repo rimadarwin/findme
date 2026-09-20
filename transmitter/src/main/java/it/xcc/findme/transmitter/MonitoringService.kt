@@ -12,6 +12,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.BatteryManager
@@ -44,6 +48,7 @@ import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.CommandRecoveryPolicy
 import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
+import it.xcc.findme.core.DeviceCommand
 import it.xcc.findme.core.DeviceLocation
 import it.xcc.findme.core.DeviceRole
 import it.xcc.findme.core.DeviceStatus
@@ -52,9 +57,14 @@ import it.xcc.findme.core.FindMeRepository
 import it.xcc.findme.core.MediaConnectionPolicy
 import it.xcc.findme.core.TrackingConfigResolver
 import it.xcc.findme.core.TrackingRuntimeState
+import it.xcc.findme.core.VoiceMessagePolicy
+import it.xcc.findme.core.VoiceMessageStatus
 import it.xcc.findme.transmitter.screen.ProjectionVideoCapturer
 import it.xcc.findme.transmitter.screen.ScreenProjectionController
 import java.time.Instant
+import java.io.File
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +82,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 class MonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -86,12 +97,14 @@ class MonitoringService : Service() {
     private val appliedCommands = mutableSetOf<Long>()
     private val mediaMutex = Mutex()
     private val historyMutex = Mutex()
+    private val voicePlaybackMutex = Mutex()
     private var desiredCameraStreaming = false
     private var desiredMicrophoneStreaming = false
     private var desiredScreenStreaming = false
     private var cameraStreaming = false
     private var microphoneStreaming = false
     private var screenStreaming = false
+    private var voiceMessagePlaying = false
     private var screenTrack: LocalVideoTrack? = null
     private var mediaRecoveryJob: Job? = null
     private lateinit var screenProjectionController: ScreenProjectionController
@@ -222,7 +235,7 @@ class MonitoringService : Service() {
                                 .mapNotNullTo(mutableSetOf()) { it.id }
                             pending.forEach { command ->
                                 if (command.id == null || command.id in effectiveIds) {
-                                    applyCommand(command.command)
+                                    applyCommand(command)
                                     publishStatus()
                                 } else {
                                     Log.i(
@@ -302,9 +315,9 @@ class MonitoringService : Service() {
         }
     }
 
-    private suspend fun applyCommand(command: CommandType) {
-        Log.i(TAG, "Applying command: $command")
-        when (command) {
+    private suspend fun applyCommand(command: DeviceCommand) {
+        Log.i(TAG, "Applying command: ${command.command}")
+        when (command.command) {
             CommandType.START_AUDIO -> {
                 desiredMicrophoneStreaming = true
                 syncMediaState()
@@ -353,6 +366,116 @@ class MonitoringService : Service() {
                 identity.monitoringEnabled = false
                 stopSelf()
             }
+            CommandType.PLAY_VOICE_MESSAGE -> {
+                val messageId = requireNotNull(command.voiceMessageId) {
+                    "Voice message command without payload"
+                }
+                playVoiceMessage(messageId)
+            }
+        }
+    }
+
+    private suspend fun playVoiceMessage(messageId: String) = voicePlaybackMutex.withLock {
+        val voiceMessage = repository.fetchVoiceMessage(messageId)
+        if (voiceMessage.status == VoiceMessageStatus.COMPLETED) return@withLock
+        repository.updateVoiceMessageStatus(messageId, VoiceMessageStatus.DOWNLOADING)
+        val audio = repository.downloadVoiceMessage(voiceMessage)
+        if (audio.isEmpty() || audio.size > VoiceMessagePolicy.MAX_FILE_SIZE_BYTES) {
+            repository.updateVoiceMessageStatus(
+                messageId,
+                VoiceMessageStatus.FAILED,
+                "File audio non valido.",
+            )
+            return@withLock
+        }
+
+        val localFile = File(cacheDir, "voice-messages/$messageId.m4a")
+        localFile.parentFile?.mkdirs()
+        localFile.writeBytes(audio)
+        val audioManager = getSystemService(AudioManager::class.java)
+        val previousVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val targetVolume = VoiceMessagePolicy.streamVolume(
+            audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            voiceMessage.volume,
+        )
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+        val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(attributes)
+            .build()
+
+        voiceMessagePlaying = true
+        startAsForeground()
+        runCatching {
+            syncMediaState()
+            publishStatus()
+        }
+        try {
+            check(audioManager.requestAudioFocus(focusRequest) ==
+                AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            ) {
+                "Audio focus unavailable"
+            }
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
+            repository.updateVoiceMessageStatus(messageId, VoiceMessageStatus.PLAYING)
+            playAudioFile(localFile, attributes)
+            repository.updateVoiceMessageStatus(messageId, VoiceMessageStatus.COMPLETED)
+            runCatching { repository.deleteVoiceMessageFile(voiceMessage.storagePath) }
+                .onFailure { Log.w(TAG, "Voice message cleanup failed", it) }
+        } catch (error: Throwable) {
+            Log.e(TAG, "Voice message playback failed", error)
+            repository.updateVoiceMessageStatus(
+                messageId,
+                VoiceMessageStatus.FAILED,
+                "Riproduzione audio non riuscita.",
+            )
+        } finally {
+            runCatching {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, previousVolume, 0)
+            }
+            audioManager.abandonAudioFocusRequest(focusRequest)
+            localFile.delete()
+            voiceMessagePlaying = false
+            startAsForeground()
+            runCatching {
+                syncMediaState()
+                publishStatus()
+            }.onFailure {
+                Log.e(TAG, "Microphone restore after voice message failed", it)
+                requestMediaRecovery()
+            }
+        }
+    }
+
+    private suspend fun playAudioFile(
+        file: File,
+        attributes: AudioAttributes,
+    ) = suspendCancellableCoroutine { continuation ->
+        val player = MediaPlayer()
+        continuation.invokeOnCancellation { player.release() }
+        try {
+            player.setAudioAttributes(attributes)
+            player.setDataSource(file.absolutePath)
+            player.setOnCompletionListener {
+                it.release()
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+            player.setOnErrorListener { failedPlayer, what, extra ->
+                failedPlayer.release()
+                if (continuation.isActive) {
+                    continuation.resumeWithException(
+                        IllegalStateException("MediaPlayer error what=$what extra=$extra"),
+                    )
+                }
+                true
+            }
+            player.prepare()
+            player.start()
+        } catch (error: Throwable) {
+            player.release()
+            if (continuation.isActive) continuation.resumeWithException(error)
         }
     }
 
@@ -388,6 +511,7 @@ class MonitoringService : Service() {
     }
 
     private fun isMediaStateHealthy(): Boolean {
+        val effectiveMicrophoneStreaming = desiredMicrophoneStreaming && !voiceMessagePlaying
         val shouldConnect = MediaConnectionPolicy.shouldConnect(
             desiredCameraStreaming,
             desiredMicrophoneStreaming,
@@ -402,7 +526,7 @@ class MonitoringService : Service() {
         ) {
             return false
         }
-        if (desiredMicrophoneStreaming &&
+        if (effectiveMicrophoneStreaming &&
             (!microphoneStreaming ||
                 activeRoom.localParticipant.getTrackPublication(Track.Source.MICROPHONE)?.track == null)
         ) {
@@ -412,6 +536,7 @@ class MonitoringService : Service() {
     }
 
     private suspend fun syncMediaState() = mediaMutex.withLock {
+        val effectiveMicrophoneStreaming = desiredMicrophoneStreaming && !voiceMessagePlaying
         if (!MediaConnectionPolicy.shouldConnect(
                 desiredCameraStreaming,
                 desiredMicrophoneStreaming,
@@ -427,9 +552,9 @@ class MonitoringService : Service() {
             activeRoom.localParticipant.setCameraEnabled(desiredCameraStreaming)
             cameraStreaming = desiredCameraStreaming
         }
-        if (microphoneStreaming != desiredMicrophoneStreaming) {
-            activeRoom.localParticipant.setMicrophoneEnabled(desiredMicrophoneStreaming)
-            microphoneStreaming = desiredMicrophoneStreaming
+        if (microphoneStreaming != effectiveMicrophoneStreaming) {
+            activeRoom.localParticipant.setMicrophoneEnabled(effectiveMicrophoneStreaming)
+            microphoneStreaming = effectiveMicrophoneStreaming
         }
         if (screenStreaming != desiredScreenStreaming) {
             if (desiredScreenStreaming) {
@@ -757,6 +882,10 @@ class MonitoringService : Service() {
         if (includeMediaProjection) {
             foregroundTypes = foregroundTypes or
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        }
+        if (voiceMessagePlaying) {
+            foregroundTypes = foregroundTypes or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
         }
         ServiceCompat.startForeground(
             this,

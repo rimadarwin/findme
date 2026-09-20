@@ -79,6 +79,10 @@ class MonitoredDeviceTest {
             "\"start_screen\"",
             Json.encodeToString(CommandType.serializer(), CommandType.START_SCREEN),
         )
+        assertEquals(
+            "\"play_voice_message\"",
+            Json.encodeToString(CommandType.serializer(), CommandType.PLAY_VOICE_MESSAGE),
+        )
     }
 
     @Test

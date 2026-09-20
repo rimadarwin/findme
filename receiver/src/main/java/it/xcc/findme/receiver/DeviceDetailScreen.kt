@@ -34,6 +34,9 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +53,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.MonitoredDevice
+import it.xcc.findme.core.VoiceMessagePolicy
+import it.xcc.findme.core.VoiceMessageVolume
 import it.xcc.findme.receiver.recording.LocalRecordingState
 import it.xcc.findme.receiver.recording.RecordingPolicy
 
@@ -90,6 +95,13 @@ fun DeviceDetailScreen(
     screenRecordingState: LocalRecordingState,
     onVideoRecordingToggle: () -> Unit,
     onAudioRecordingToggle: () -> Unit,
+    voiceMessageState: VoiceMessageDraftState,
+    voiceMessageVolume: VoiceMessageVolume,
+    voiceMessageFeedback: String,
+    onVoiceMessageRecordToggle: () -> Unit,
+    onVoiceMessageVolumeChange: (VoiceMessageVolume) -> Unit,
+    onVoiceMessageSend: () -> Unit,
+    onVoiceMessageDiscard: () -> Unit,
     onScreenRecordingToggle: () -> Unit,
     snapshotPreview: Bitmap?,
     onSnapshotAnimationFinished: () -> Unit,
@@ -152,6 +164,13 @@ fun DeviceDetailScreen(
                     trackAvailable = audioTrackAvailable,
                     recordingState = audioRecordingState,
                     onRecordingToggle = onAudioRecordingToggle,
+                    voiceMessageState = voiceMessageState,
+                    voiceMessageVolume = voiceMessageVolume,
+                    voiceMessageFeedback = voiceMessageFeedback,
+                    onVoiceMessageRecordToggle = onVoiceMessageRecordToggle,
+                    onVoiceMessageVolumeChange = onVoiceMessageVolumeChange,
+                    onVoiceMessageSend = onVoiceMessageSend,
+                    onVoiceMessageDiscard = onVoiceMessageDiscard,
                 )
                 DeviceTab.SCREEN -> ScreenTab(
                     item = item,
@@ -642,12 +661,20 @@ private fun AudioTab(
     trackAvailable: Boolean,
     recordingState: LocalRecordingState,
     onRecordingToggle: () -> Unit,
+    voiceMessageState: VoiceMessageDraftState,
+    voiceMessageVolume: VoiceMessageVolume,
+    voiceMessageFeedback: String,
+    onVoiceMessageRecordToggle: () -> Unit,
+    onVoiceMessageVolumeChange: (VoiceMessageVolume) -> Unit,
+    onVoiceMessageSend: () -> Unit,
+    onVoiceMessageDiscard: () -> Unit,
 ) {
     val streaming = item.status?.microphoneStreaming == true
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         MediaSwitch(
@@ -671,6 +698,101 @@ private fun AudioTab(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
+        VoiceMessageControl(
+            state = voiceMessageState,
+            volume = voiceMessageVolume,
+            feedback = voiceMessageFeedback,
+            onRecordToggle = onVoiceMessageRecordToggle,
+            onVolumeChange = onVoiceMessageVolumeChange,
+            onSend = onVoiceMessageSend,
+            onDiscard = onVoiceMessageDiscard,
+        )
+    }
+}
+
+@Composable
+private fun VoiceMessageControl(
+    state: VoiceMessageDraftState,
+    volume: VoiceMessageVolume,
+    feedback: String,
+    onRecordToggle: () -> Unit,
+    onVolumeChange: (VoiceMessageVolume) -> Unit,
+    onSend: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Messaggio vocale", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Il messaggio sarà consegnato anche se il trasmettitore è offline.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                VoiceMessageVolume.entries.forEach { candidate ->
+                    FilterChip(
+                        selected = volume == candidate,
+                        onClick = { onVolumeChange(candidate) },
+                        enabled = state !is VoiceMessageDraftState.Sending &&
+                            state !is VoiceMessageDraftState.Recording,
+                        label = {
+                            Text(
+                                when (candidate) {
+                                    VoiceMessageVolume.LOW -> "Basso"
+                                    VoiceMessageVolume.MEDIUM -> "Medio"
+                                    VoiceMessageVolume.HIGH -> "Alto"
+                                },
+                            )
+                        },
+                    )
+                }
+            }
+            when (state) {
+                VoiceMessageDraftState.Idle -> Button(onClick = onRecordToggle) {
+                    Text("Registra")
+                }
+                is VoiceMessageDraftState.Recording -> {
+                    Text(
+                        "${RecordingPolicy.formatElapsed(state.elapsedMs)} / " +
+                            RecordingPolicy.formatElapsed(VoiceMessagePolicy.MAX_DURATION_MS.toLong()),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Button(onClick = onRecordToggle) {
+                        Text("Ferma")
+                    }
+                }
+                is VoiceMessageDraftState.Ready -> {
+                    Text(
+                        "Pronto: ${RecordingPolicy.formatElapsed(state.durationMs)}",
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onDiscard) { Text("Annulla") }
+                        Button(onClick = onSend) { Text("Invia") }
+                    }
+                }
+                VoiceMessageDraftState.Sending -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Text("Invio…")
+                }
+            }
+            if (feedback.isNotBlank()) {
+                Text(
+                    feedback,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 }
 

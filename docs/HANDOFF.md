@@ -31,6 +31,9 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - cambio remoto tra camera frontale e posteriore;
 - visualizzatore audio animato basato sul livello LiveKit, senza dipendenze
   aggiuntive;
+- messaggi vocali asincroni AAC/M4A fino a 60 secondi dal ricevitore al
+  trasmettitore, con Storage privato, consegna persistente, stato di
+  riproduzione e volume temporaneo basso/medio/alto;
 - alias personalizzabile per ogni trasmettitore, salvato nella relazione col
   ricevitore e affiancato al nome originale;
 - icone distinte per trasmittente e ricevente, entrambe installate come
@@ -85,8 +88,11 @@ Le migrazioni `202609160005_media_state.sql`,
 `202609170004_geofence_alert.sql` e
 `202609170005_screen_mirroring.sql` e
 `202609180001_delete_location_history.sql` e
-`202609200001_command_recovery.sql` devono essere applicate prima di installare
-le nuove versioni delle app.
+`202609200001_command_recovery.sql` e
+`202609200002_voice_messages_schema.sql` e
+`202609200003_voice_messages_rpc.sql` e
+`202609200004_voice_storage_policy_fix.sql` devono essere applicate prima di
+installare le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano
 `@EncodeDefault`, perché Supabase deve ricevere esplicitamente anche `false`.
@@ -96,6 +102,12 @@ precedentemente attivo rimane erroneamente visualizzato come ON.
 Nota di affidabilità: “online” dimostra che gli heartbeat REST funzionano, ma
 non garantisce che il WebSocket Realtime dei comandi sia vivo. Per questo il
 polling comandi deve restare indipendente dalla sottoscrizione Realtime.
+
+I messaggi vocali non usano LiveKit: il receiver carica il file nel bucket
+privato `voice-messages`, quindi la RPC crea nello stesso commit il record e il
+comando `play_voice_message`. Il transmitter sospende temporaneamente il
+microfono per evitare eco, riproduce in foreground, ripristina il volume
+precedente ed elimina l’oggetto Storage dopo il completamento.
 
 ## Prima esecuzione
 

@@ -61,6 +61,7 @@ enum class CommandType {
     @SerialName("stop_screen") STOP_SCREEN,
     @SerialName("start_monitoring") START_MONITORING,
     @SerialName("stop_monitoring") STOP_MONITORING,
+    @SerialName("play_voice_message") PLAY_VOICE_MESSAGE,
 }
 
 @Serializable
@@ -68,9 +69,41 @@ data class DeviceCommand(
     val id: Long? = null,
     @SerialName("device_id") val deviceId: String,
     val command: CommandType,
+    @SerialName("voice_message_id") val voiceMessageId: String? = null,
     val status: String = "pending",
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("applied_at") val appliedAt: String? = null,
+)
+
+@Serializable
+enum class VoiceMessageVolume {
+    @SerialName("low") LOW,
+    @SerialName("medium") MEDIUM,
+    @SerialName("high") HIGH,
+}
+
+@Serializable
+enum class VoiceMessageStatus {
+    @SerialName("pending") PENDING,
+    @SerialName("downloading") DOWNLOADING,
+    @SerialName("playing") PLAYING,
+    @SerialName("completed") COMPLETED,
+    @SerialName("failed") FAILED,
+}
+
+@Serializable
+data class VoiceMessage(
+    val id: String,
+    @SerialName("receiver_id") val receiverId: String,
+    @SerialName("transmitter_id") val transmitterId: String,
+    @SerialName("storage_path") val storagePath: String,
+    val volume: VoiceMessageVolume,
+    @SerialName("duration_ms") val durationMs: Int,
+    val status: VoiceMessageStatus = VoiceMessageStatus.PENDING,
+    @SerialName("error_message") val errorMessage: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("started_at") val startedAt: String? = null,
+    @SerialName("completed_at") val completedAt: String? = null,
 )
 
 @Serializable

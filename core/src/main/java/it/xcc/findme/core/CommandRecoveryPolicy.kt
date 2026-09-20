@@ -28,6 +28,8 @@ object CommandRecoveryPolicy {
         CommandType.START_MONITORING,
         CommandType.STOP_MONITORING,
         -> "monitoring"
-        CommandType.SWITCH_CAMERA -> null
+        CommandType.SWITCH_CAMERA,
+        CommandType.PLAY_VOICE_MESSAGE,
+        -> null
     }
 }

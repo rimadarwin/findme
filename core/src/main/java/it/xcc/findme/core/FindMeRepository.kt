@@ -25,7 +25,10 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.realtime.selectAsFlow
+import io.github.jan.supabase.storage.Storage
+import io.github.jan.supabase.storage.storage
 import io.ktor.client.call.body
+import io.ktor.http.ContentType
 import java.time.Instant
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -323,6 +326,86 @@ class FindMeRepository(
         client.from("device_commands").insert(DeviceCommand(deviceId = deviceId, command = command))
     }
 
+    suspend fun sendVoiceMessage(
+        receiverId: String,
+        transmitterId: String,
+        messageId: String,
+        audio: ByteArray,
+        volume: VoiceMessageVolume,
+        durationMs: Long,
+    ): VoiceMessage {
+        require(VoiceMessagePolicy.isValidDuration(durationMs)) {
+            "Il messaggio deve durare da 1 a 60 secondi"
+        }
+        require(audio.isNotEmpty() && audio.size <= VoiceMessagePolicy.MAX_FILE_SIZE_BYTES) {
+            "Dimensione del messaggio vocale non valida"
+        }
+        ensureAuthenticated()
+        val path = VoiceMessagePolicy.storagePath(receiverId, transmitterId, messageId)
+        val bucket = client.storage.from(VOICE_MESSAGES_BUCKET)
+        bucket.upload(path, audio) {
+            upsert = false
+            contentType = ContentType("audio", "mp4")
+        }
+        return runCatching {
+            client.postgrest.rpc(
+                function = "create_voice_message",
+                parameters = buildJsonObject {
+                    put("target_receiver_id", receiverId)
+                    put("target_transmitter_id", transmitterId)
+                    put("target_message_id", messageId)
+                    put("requested_volume", volume.name.lowercase())
+                    put("requested_duration_ms", durationMs.toInt())
+                },
+            ).decodeSingle<VoiceMessage>()
+        }.getOrElse { error ->
+            runCatching { bucket.delete(path) }
+            throw error
+        }
+    }
+
+    suspend fun fetchVoiceMessage(messageId: String): VoiceMessage {
+        ensureAuthenticated()
+        return client.from("voice_messages").select {
+            filter { eq("id", messageId) }
+            limit(1)
+        }.decodeSingle()
+    }
+
+    suspend fun downloadVoiceMessage(message: VoiceMessage): ByteArray {
+        ensureAuthenticated()
+        return client.storage.from(VOICE_MESSAGES_BUCKET)
+            .downloadAuthenticated(message.storagePath)
+    }
+
+    suspend fun updateVoiceMessageStatus(
+        messageId: String,
+        status: VoiceMessageStatus,
+        errorMessage: String? = null,
+    ) {
+        ensureAuthenticated()
+        client.from("voice_messages").update(
+            {
+                set("status", status.name.lowercase())
+                set("error_message", errorMessage?.take(300))
+                when (status) {
+                    VoiceMessageStatus.PLAYING -> set("started_at", Instant.now().toString())
+                    VoiceMessageStatus.COMPLETED,
+                    VoiceMessageStatus.FAILED,
+                    -> set("completed_at", Instant.now().toString())
+                    else -> Unit
+                }
+            },
+        ) {
+            filter { eq("id", messageId) }
+        }
+    }
+
+    suspend fun deleteVoiceMessageFile(storagePath: String) {
+        ensureAuthenticated()
+        client.storage.from(VOICE_MESSAGES_BUCKET).delete(storagePath)
+    }
+
     suspend fun acknowledgeCommand(commandId: Long) {
         ensureAuthenticated()
         client.from("device_commands").update(
@@ -421,6 +504,7 @@ class FindMeRepository(
 
     companion object {
         private const val TAG = "FindMeRepository"
+        private const val VOICE_MESSAGES_BUCKET = "voice-messages"
         // A single client and mutex prevent concurrent refresh-token rotation in one app process.
         private val processAuthenticationMutex = Mutex()
         private var lastSessionRefreshAtElapsedMs = 0L
@@ -443,6 +527,7 @@ class FindMeRepository(
                 install(Postgrest)
                 install(Realtime)
                 install(Functions)
+                install(Storage)
             }
         }
     }

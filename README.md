@@ -2,7 +2,8 @@
 
 Sistema Android composto da due app:
 
-- **transmitter**: pubblica posizione e, su comando, audio/video;
+- **transmitter**: pubblica posizione e, su comando, audio/video/schermo e
+  riproduce messaggi vocali;
 - **receiver**: mostra trasmettitori, stato, mappa e flusso LiveKit.
 
 Il backend applicativo è Supabase; i media realtime passano attraverso LiveKit SFU.
@@ -91,6 +92,13 @@ tab o interrompendo lo stream e ha un limite di sicurezza di 30 minuti.
 Durante streaming o registrazione il ricevitore mantiene temporaneamente
 schermo e CPU attivi. Un blocco manuale non interrompe la sessione; passando
 volontariamente a un’altra app gli stream vengono invece chiusi.
+
+Nel tab **Audio** il ricevitore può registrare e inviare un messaggio vocale
+AAC/M4A di massimo 60 secondi, scegliendo volume basso, medio o alto. Il file
+passa da un bucket Supabase Storage privato e il comando resta persistente:
+viene quindi riprodotto anche se il trasmettitore torna online in seguito.
+Durante la riproduzione il microfono remoto viene temporaneamente sospeso per
+evitare eco; volume e streaming precedenti vengono ripristinati al termine.
 
 Il tab **Schermo** visualizza e registra in MP4 lo schermo del trasmettitore.
 Android richiede una conferma MediaProjection al primo setup e nuovamente dopo

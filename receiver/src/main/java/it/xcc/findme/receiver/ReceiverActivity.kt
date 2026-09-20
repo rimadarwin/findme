@@ -18,6 +18,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,6 +67,9 @@ import it.xcc.findme.core.ReceiverProfile
 import it.xcc.findme.core.ReceiverPowerPolicy
 import it.xcc.findme.core.ReceiverTrackingSettings
 import it.xcc.findme.core.TrackingSettingsUpdate
+import it.xcc.findme.core.VoiceMessagePolicy
+import it.xcc.findme.core.VoiceMessageStatus
+import it.xcc.findme.core.VoiceMessageVolume
 import it.xcc.findme.receiver.recording.AudioM4aRecorder
 import it.xcc.findme.receiver.recording.LocalRecordingState
 import it.xcc.findme.receiver.recording.RecordingPolicy
@@ -73,8 +77,10 @@ import it.xcc.findme.receiver.recording.RecordingResult
 import it.xcc.findme.receiver.recording.RecordingKind
 import it.xcc.findme.receiver.recording.VideoMp4Recorder
 import java.time.Instant
+import java.io.File
 import java.util.Collections
 import java.util.IdentityHashMap
+import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -129,12 +135,22 @@ class ReceiverActivity : ComponentActivity() {
     private var screenRecordingState by mutableStateOf<LocalRecordingState>(
         LocalRecordingState.Idle,
     )
+    private var voiceMessageState by mutableStateOf<VoiceMessageDraftState>(
+        VoiceMessageDraftState.Idle,
+    )
+    private var voiceMessageVolume by mutableStateOf(VoiceMessageVolume.MEDIUM)
+    private var voiceMessageFeedback by mutableStateOf("")
+    private lateinit var voiceMessageRecorder: VoiceMessageRecorder
+    private var voiceMessageDraftFile: File? = null
+    private var pendingVoiceRecordDeviceId: String? = null
     private var videoRecorder: VideoMp4Recorder? = null
     private var audioRecorder: AudioM4aRecorder? = null
     private var screenRecorder: VideoMp4Recorder? = null
     private var videoRecordingTimerJob: Job? = null
     private var audioRecordingTimerJob: Job? = null
     private var screenRecordingTimerJob: Job? = null
+    private var voiceMessageTimerJob: Job? = null
+    private var voiceMessageDeliveryJob: Job? = null
     private var dataPlaneJob: Job? = null
     private var trackingLeaseJob: Job? = null
     private var roomEventsJob: Job? = null
@@ -148,6 +164,18 @@ class ReceiverActivity : ComponentActivity() {
     private val recoverySignals = Channel<Throwable>(Channel.CONFLATED)
     @Volatile
     private var networkWasLost = false
+
+    private val recordAudioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val deviceId = pendingVoiceRecordDeviceId
+        pendingVoiceRecordDeviceId = null
+        if (granted && deviceId != null && selectedDeviceId == deviceId) {
+            startVoiceMessageRecording()
+        } else {
+            voiceMessageFeedback = "Permesso microfono necessario per registrare."
+        }
+    }
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onLost(network: Network) {
@@ -166,6 +194,7 @@ class ReceiverActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         identity = DeviceIdentity(this)
+        voiceMessageRecorder = VoiceMessageRecorder(this)
         connectivityManager = getSystemService(ConnectivityManager::class.java)
         powerManager = getSystemService(PowerManager::class.java)
         mediaWakeLock = powerManager.newWakeLock(
@@ -236,6 +265,8 @@ class ReceiverActivity : ComponentActivity() {
         if (fullscreenDeviceId != null) closeFullscreenMap()
         if (screenFullscreenDeviceId != null) closeScreenFullscreen()
         if (historyFullscreenActive) setHistoryFullscreen(false)
+        voiceMessageDeliveryJob?.cancel()
+        discardVoiceMessage()
         disconnectMedia()
         releaseMediaPowerProtection()
         dataPlaneJob?.cancel()
@@ -427,6 +458,9 @@ class ReceiverActivity : ComponentActivity() {
                             }
                             if (selectedTab == DeviceTab.AUDIO && tab != DeviceTab.AUDIO) {
                                 stopAudioRecording()
+                                if (voiceMessageState !is VoiceMessageDraftState.Sending) {
+                                    discardVoiceMessage()
+                                }
                             }
                             if (selectedTab == DeviceTab.SCREEN && tab != DeviceTab.SCREEN) {
                                 stopScreenRecording()
@@ -477,6 +511,19 @@ class ReceiverActivity : ComponentActivity() {
                                 startAudioRecording(selected)
                             }
                         },
+                        voiceMessageState = voiceMessageState,
+                        voiceMessageVolume = voiceMessageVolume,
+                        voiceMessageFeedback = voiceMessageFeedback,
+                        onVoiceMessageRecordToggle = {
+                            toggleVoiceMessageRecording(selected)
+                        },
+                        onVoiceMessageVolumeChange = {
+                            voiceMessageVolume = it
+                        },
+                        onVoiceMessageSend = {
+                            sendVoiceMessage(selected)
+                        },
+                        onVoiceMessageDiscard = ::discardVoiceMessage,
                         onScreenRecordingToggle = {
                             if (screenRecordingState.isActive) {
                                 stopScreenRecording()
@@ -713,11 +760,14 @@ class ReceiverActivity : ComponentActivity() {
         selectedDeviceId = deviceId
         selectedTab = DeviceTab.POSITION
         message = ""
+        voiceMessageFeedback = ""
         reconcileMediaConnection()
     }
 
     private fun closeDetail() {
         clearSnapshotAnimation()
+        voiceMessageDeliveryJob?.cancel()
+        discardVoiceMessage()
         selectedDeviceId?.let(::stopAllStreams)
         stopFastTracking()
         selectedDeviceId = null
@@ -1248,6 +1298,152 @@ class ReceiverActivity : ComponentActivity() {
         lifecycleScope.launch {
             runCatching { repository!!.sendCommand(device.device.id, type) }
                 .onFailure { requestDataPlaneRecovery(it, "Invio comando non riuscito.") }
+        }
+    }
+
+    private fun toggleVoiceMessageRecording(device: MonitoredDevice) {
+        if (voiceMessageState is VoiceMessageDraftState.Recording) {
+            finishVoiceMessageRecording()
+            return
+        }
+        if (voiceMessageState !is VoiceMessageDraftState.Idle) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingVoiceRecordDeviceId = device.device.id
+            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startVoiceMessageRecording()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startVoiceMessageRecording() {
+        val output = File(
+            cacheDir,
+            "voice-messages/draft-${UUID.randomUUID()}.m4a",
+        )
+        voiceMessageFeedback = ""
+        runCatching {
+            voiceMessageRecorder.start(output)
+            voiceMessageDraftFile = output
+            voiceMessageState = VoiceMessageDraftState.Recording(0)
+            voiceMessageTimerJob?.cancel()
+            voiceMessageTimerJob = lifecycleScope.launch {
+                while (isActive && voiceMessageState is VoiceMessageDraftState.Recording) {
+                    val elapsed = (
+                        voiceMessageState as? VoiceMessageDraftState.Recording
+                        )?.elapsedMs ?: break
+                    if (elapsed >= VoiceMessagePolicy.MAX_DURATION_MS) {
+                        finishVoiceMessageRecording()
+                        break
+                    }
+                    delay(250)
+                    val next = (
+                        voiceMessageState as? VoiceMessageDraftState.Recording
+                        )?.elapsedMs?.plus(250) ?: break
+                    voiceMessageState = VoiceMessageDraftState.Recording(next)
+                }
+            }
+        }.onFailure {
+            output.delete()
+            voiceMessageDraftFile = null
+            voiceMessageState = VoiceMessageDraftState.Idle
+            voiceMessageFeedback = "Registrazione non riuscita."
+            Log.e(TAG, "Voice message recording start failed", it)
+        }
+    }
+
+    private fun finishVoiceMessageRecording() {
+        voiceMessageTimerJob?.cancel()
+        voiceMessageTimerJob = null
+        val output = voiceMessageDraftFile
+        runCatching { voiceMessageRecorder.stop() }
+            .onSuccess { durationMs ->
+                if (output == null ||
+                    !VoiceMessagePolicy.isValidDuration(durationMs) ||
+                    !output.exists()
+                ) {
+                    output?.delete()
+                    voiceMessageDraftFile = null
+                    voiceMessageState = VoiceMessageDraftState.Idle
+                    voiceMessageFeedback = "Il messaggio deve durare almeno un secondo."
+                } else {
+                    voiceMessageState = VoiceMessageDraftState.Ready(durationMs)
+                }
+            }
+            .onFailure {
+                output?.delete()
+                voiceMessageDraftFile = null
+                voiceMessageState = VoiceMessageDraftState.Idle
+                voiceMessageFeedback = "Registrazione non riuscita."
+                Log.e(TAG, "Voice message recording stop failed", it)
+            }
+    }
+
+    private fun discardVoiceMessage() {
+        if (voiceMessageState is VoiceMessageDraftState.Sending) {
+            voiceMessageDeliveryJob?.cancel()
+        }
+        voiceMessageTimerJob?.cancel()
+        voiceMessageTimerJob = null
+        if (voiceMessageState is VoiceMessageDraftState.Recording) {
+            voiceMessageRecorder.cancel()
+        }
+        voiceMessageDraftFile?.delete()
+        voiceMessageDraftFile = null
+        voiceMessageState = VoiceMessageDraftState.Idle
+        voiceMessageFeedback = ""
+    }
+
+    private fun sendVoiceMessage(device: MonitoredDevice) {
+        val ready = voiceMessageState as? VoiceMessageDraftState.Ready ?: return
+        val draft = voiceMessageDraftFile ?: return
+        val selectedVolume = voiceMessageVolume
+        voiceMessageState = VoiceMessageDraftState.Sending
+        voiceMessageFeedback = ""
+        voiceMessageDeliveryJob?.cancel()
+        voiceMessageDeliveryJob = lifecycleScope.launch {
+            val result = runCatching {
+                val audio = withContext(Dispatchers.IO) { draft.readBytes() }
+                repository!!.sendVoiceMessage(
+                    receiverId = identity.id,
+                    transmitterId = device.device.id,
+                    messageId = UUID.randomUUID().toString(),
+                    audio = audio,
+                    volume = selectedVolume,
+                    durationMs = ready.durationMs,
+                )
+            }
+            result.onFailure {
+                voiceMessageState = ready
+                voiceMessageFeedback = "Invio non riuscito. Puoi riprovare."
+                Log.e(TAG, "Voice message upload failed", it)
+            }
+            val sent = result.getOrNull() ?: return@launch
+            draft.delete()
+            voiceMessageDraftFile = null
+            voiceMessageState = VoiceMessageDraftState.Idle
+            voiceMessageFeedback = "Messaggio inviato, in attesa di riproduzione."
+            repeat(45) {
+                delay(2_000)
+                val current = runCatching {
+                    repository!!.fetchVoiceMessage(sent.id)
+                }.getOrNull() ?: return@repeat
+                voiceMessageFeedback = when (current.status) {
+                    VoiceMessageStatus.PENDING -> "Messaggio in attesa del trasmettitore."
+                    VoiceMessageStatus.DOWNLOADING -> "Download sul trasmettitore…"
+                    VoiceMessageStatus.PLAYING -> "Riproduzione in corso…"
+                    VoiceMessageStatus.COMPLETED -> "Messaggio riprodotto."
+                    VoiceMessageStatus.FAILED ->
+                        current.errorMessage ?: "Riproduzione non riuscita."
+                }
+                if (current.status == VoiceMessageStatus.COMPLETED ||
+                    current.status == VoiceMessageStatus.FAILED
+                ) {
+                    return@launch
+                }
+            }
         }
     }
 

@@ -25,7 +25,12 @@ disabilitare RLS. La migrazione
 storico soltanto per trasmettitori associati a un ricevitore posseduto
 dall’utente autenticato. La migrazione
 `202609200001_command_recovery.sql` aggiunge l’intervallo globale del polling
-comandi usato come fallback quando Supabase Realtime non risponde.
+comandi usato come fallback quando Supabase Realtime non risponde. Le migrazioni
+`202609200002_voice_messages_schema.sql` e
+`202609200003_voice_messages_rpc.sql`, con la correzione isolata
+`202609200004_voice_storage_policy_fix.sql`, creano il bucket privato
+`voice-messages`, le policy RLS e il comando atomico per consegnare messaggi
+vocali. Non rendere pubblico il bucket.
 
 ### Identità automatica
 
