@@ -129,6 +129,16 @@ fun TrackingSettingsScreen(
                 onChange(settings.toUpdate(heartbeatIntervalSec = it))
             },
         )
+        SettingOptions(
+            title = "Frequenza controllo comandi",
+            description = "Polling di sicurezza se il canale in tempo reale non risponde.",
+            values = listOf(30, 60, 120, 300),
+            selected = settings.commandPollIntervalSec,
+            label = { "$it s" },
+            onSelected = {
+                onChange(settings.toUpdate(commandPollIntervalSec = it))
+            },
+        )
         Text(
             "Le modifiche sono salvate subito e valgono per tutti i trasmettitori associati.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -389,6 +399,7 @@ private fun ReceiverTrackingSettings.toUpdate(
     historyMultiplier: Int = this.historyMultiplier,
     onlyMovement: Boolean = this.onlyMovement,
     heartbeatIntervalSec: Int = this.heartbeatIntervalSec,
+    commandPollIntervalSec: Int = this.commandPollIntervalSec,
     geofenceRadiusM: Int = this.geofenceRadiusM,
 ) = TrackingSettingsUpdate(
     offlineLocationIntervalSec = offlineLocationIntervalSec,
@@ -396,5 +407,6 @@ private fun ReceiverTrackingSettings.toUpdate(
     historyMultiplier = historyMultiplier,
     onlyMovement = onlyMovement,
     heartbeatIntervalSec = heartbeatIntervalSec,
+    commandPollIntervalSec = commandPollIntervalSec,
     geofenceRadiusM = geofenceRadiusM,
 )

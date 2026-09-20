@@ -30,4 +30,13 @@ class ConnectionRecoveryPolicyTest {
         assertFalse(ConnectionRecoveryPolicy.isHeartbeatStale(1_000, 241_000, 120))
         assertTrue(ConnectionRecoveryPolicy.isHeartbeatStale(1_000, 241_001, 120))
     }
+
+    @Test
+    fun `command polling interval is bounded and media rebuild needs three failures`() {
+        assertEquals(15, ConnectionRecoveryPolicy.commandPollIntervalSec(1))
+        assertEquals(60, ConnectionRecoveryPolicy.commandPollIntervalSec(60))
+        assertEquals(300, ConnectionRecoveryPolicy.commandPollIntervalSec(600))
+        assertFalse(ConnectionRecoveryPolicy.shouldRebuildMedia(2))
+        assertTrue(ConnectionRecoveryPolicy.shouldRebuildMedia(3))
+    }
 }

@@ -41,6 +41,7 @@ class DeviceIdentity(context: Context) {
                 historyMultiplier = preferences.getInt(KEY_TRACKING_HISTORY_MULTIPLIER, 2),
                 onlyMovement = preferences.getBoolean(KEY_TRACKING_ONLY_MOVEMENT, true),
                 heartbeatIntervalSec = preferences.getInt(KEY_TRACKING_HEARTBEAT, 60),
+                commandPollIntervalSec = preferences.getInt(KEY_COMMAND_POLL_INTERVAL, 60),
                 geofenceRadiusM = preferences.getInt(KEY_GEOFENCE_RADIUS, 100),
             ),
             relationship = ReceiverTransmitter(
@@ -60,6 +61,7 @@ class DeviceIdentity(context: Context) {
             .putInt(KEY_TRACKING_HISTORY_MULTIPLIER, state.settings.historyMultiplier)
             .putBoolean(KEY_TRACKING_ONLY_MOVEMENT, state.settings.onlyMovement)
             .putInt(KEY_TRACKING_HEARTBEAT, state.settings.heartbeatIntervalSec)
+            .putInt(KEY_COMMAND_POLL_INTERVAL, state.settings.commandPollIntervalSec)
             .putInt(KEY_GEOFENCE_RADIUS, state.settings.geofenceRadiusM)
             .putString(KEY_TRACKING_LIVE_UNTIL, state.relationship.liveTrackingUntil)
             .putBoolean(KEY_TRACKING_LIVE_HISTORY, state.relationship.liveHistory)
@@ -79,6 +81,7 @@ class DeviceIdentity(context: Context) {
         const val KEY_TRACKING_HISTORY_MULTIPLIER = "tracking_history_multiplier"
         const val KEY_TRACKING_ONLY_MOVEMENT = "tracking_only_movement"
         const val KEY_TRACKING_HEARTBEAT = "tracking_heartbeat_sec"
+        const val KEY_COMMAND_POLL_INTERVAL = "command_poll_interval_sec"
         const val KEY_TRACKING_LIVE_UNTIL = "tracking_live_until"
         const val KEY_TRACKING_LIVE_HISTORY = "tracking_live_history"
         const val KEY_GEOFENCE_RADIUS = "geofence_radius_m"

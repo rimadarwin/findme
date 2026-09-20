@@ -742,6 +742,7 @@ class ReceiverActivity : ComponentActivity() {
             historyMultiplier = update.historyMultiplier,
             onlyMovement = update.onlyMovement,
             heartbeatIntervalSec = update.heartbeatIntervalSec,
+            commandPollIntervalSec = update.commandPollIntervalSec,
             geofenceRadiusM = update.geofenceRadiusM,
         )
         lifecycleScope.launch {

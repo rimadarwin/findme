@@ -67,6 +67,11 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - resilienza di rete end-to-end: client Supabase unico per processo, refresh
   sessione esplicito, rinnovo periodico Realtime, watchdog heartbeat, retry
   esponenziale e riavvio immediato del piano dati al ritorno della rete.
+- recupero comandi ibrido: Realtime per la bassa latenza e polling REST
+  configurabile 30/60/120/300 secondi indipendente dal WebSocket; il fetch
+  iniziale precede sempre la sottoscrizione e il publisher LiveKit viene
+  ricostruito dopo tre controlli media consecutivi non validi. Gli arretrati
+  sono compattati all’ultimo stato audio/video/schermo prima dell’applicazione.
 - esenzione dall’ottimizzazione batteria richiedibile dalla dashboard del
   trasmettitore; sui firmware Xiaomi resta necessaria anche l’impostazione
   proprietaria “Nessuna restrizione”.
@@ -79,13 +84,18 @@ Le migrazioni `202609160005_media_state.sql`,
 `202609170003_tracking_policy_fix.sql`, e
 `202609170004_geofence_alert.sql` e
 `202609170005_screen_mirroring.sql` e
-`202609180001_delete_location_history.sql` devono essere applicate prima di
-installare le nuove versioni delle app.
+`202609180001_delete_location_history.sql` e
+`202609200001_command_recovery.sql` devono essere applicate prima di installare
+le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano
 `@EncodeDefault`, perché Supabase deve ricevere esplicitamente anche `false`.
 Senza questa annotazione l'upsert omette il valore predefinito e uno stream
 precedentemente attivo rimane erroneamente visualizzato come ON.
+
+Nota di affidabilità: “online” dimostra che gli heartbeat REST funzionano, ma
+non garantisce che il WebSocket Realtime dei comandi sia vivo. Per questo il
+polling comandi deve restare indipendente dalla sottoscrizione Realtime.
 
 ## Prima esecuzione
 

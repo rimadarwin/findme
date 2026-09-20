@@ -103,6 +103,7 @@ data class ReceiverTrackingSettings(
     @EncodeDefault
     @SerialName("only_movement") val onlyMovement: Boolean = true,
     @SerialName("heartbeat_interval_sec") val heartbeatIntervalSec: Int = 60,
+    @SerialName("command_poll_interval_sec") val commandPollIntervalSec: Int = 60,
     @SerialName("geofence_radius_m") val geofenceRadiusM: Int = 100,
 )
 
@@ -114,6 +115,7 @@ data class TrackingSettingsUpdate(
     @EncodeDefault
     @SerialName("only_movement") val onlyMovement: Boolean,
     @SerialName("heartbeat_interval_sec") val heartbeatIntervalSec: Int,
+    @SerialName("command_poll_interval_sec") val commandPollIntervalSec: Int,
     @SerialName("geofence_radius_m") val geofenceRadiusM: Int,
 )
 

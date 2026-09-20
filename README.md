@@ -55,11 +55,17 @@ L’ingranaggio nella home del ricevitore configura per tutti i trasmettitori:
 - posizione rapida: 5/10/15/20 secondi;
 - storico: 1x/2x/3x e salvataggio solo in movimento;
 - heartbeat: 30/60/90/120 secondi.
+- controllo comandi di sicurezza: 30/60/120/300 secondi.
 
 Sessione Supabase, heartbeat e canali Realtime sono sorvegliati
 indipendentemente. Dopo una perdita di rete entrambe le app ricreano
 automaticamente il piano dati con retry progressivo; il monitoraggio locale
-rimane attivo e non richiede interventi sull’interruttore.
+rimane attivo e non richiede interventi sull’interruttore. I comandi vengono
+anche riletti periodicamente via REST: un WebSocket Realtime bloccato non può
+più lasciare audio, video o schermo senza risposta. Il publisher LiveKit viene
+ricostruito automaticamente dopo tre controlli media consecutivi non validi.
+Gli arretrati vengono compattati applicando solo l’ultimo stato richiesto per
+ciascuno stream, evitando rapide sequenze camera ON/OFF durante il recupero.
 
 Nel tab **Posizione**, l’occhio abilita temporaneamente il tracking rapido.
 **Storico rapido** applica la stessa frequenza anche alla registrazione dello

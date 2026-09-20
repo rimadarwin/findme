@@ -23,7 +23,9 @@ temporanei e la RPC protetta per il percorso storico; la successiva
 disabilitare RLS. La migrazione
 `202609180001_delete_location_history.sql` abilita la cancellazione dello
 storico soltanto per trasmettitori associati a un ricevitore posseduto
-dall’utente autenticato.
+dall’utente autenticato. La migrazione
+`202609200001_command_recovery.sql` aggiunge l’intervallo globale del polling
+comandi usato come fallback quando Supabase Realtime non risponde.
 
 ### Identità automatica
 

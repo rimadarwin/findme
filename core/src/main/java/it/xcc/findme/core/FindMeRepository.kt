@@ -6,6 +6,7 @@
 package it.xcc.findme.core
 
 import android.os.SystemClock
+import android.util.Log
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
@@ -26,10 +27,14 @@ import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.realtime.selectAsFlow
 import io.ktor.client.call.body
 import java.time.Instant
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.buildJsonArray
@@ -251,23 +256,56 @@ class FindMeRepository(
         )
     }
 
-    fun commands(deviceId: String): Flow<List<DeviceCommand>> = flow {
+    fun commands(
+        deviceId: String,
+        pollingIntervalSec: () -> Int = {
+            ConnectionRecoveryPolicy.DEFAULT_COMMAND_POLL_INTERVAL_SEC
+        },
+    ): Flow<List<DeviceCommand>> = channelFlow {
         val channel = client.channel("commands-$deviceId")
         val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "device_commands"
             filter("device_id", FilterOperator.EQ, deviceId)
         }
+        val fetchMutex = Mutex()
+
+        suspend fun publishPendingCommands(source: String) {
+            fetchMutex.withLock {
+                val pending = fetchPendingCommands(deviceId)
+                Log.d(TAG, "Command check source=$source pending=${pending.size}")
+                send(pending)
+            }
+        }
+
+        // REST polling must run before Realtime: a stalled websocket subscription must never
+        // prevent already persisted commands from being consumed.
+        publishPendingCommands("initial")
+        val realtimeJob = launch {
+            runCatching {
+                withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
+                    channel.subscribe()
+                }
+                inserts.collect {
+                    publishPendingCommands("realtime")
+                }
+            }.onFailure {
+                Log.e(TAG, "Command Realtime listener unavailable; REST polling remains active", it)
+            }
+        }
         try {
-            channel.subscribe()
-            emit(fetchPendingCommands(deviceId))
-            inserts.collect {
-                emit(fetchPendingCommands(deviceId))
+            while (isActive) {
+                delay(
+                    ConnectionRecoveryPolicy.commandPollIntervalSec(pollingIntervalSec()) *
+                        1_000L,
+                )
+                publishPendingCommands("poll")
             }
         } finally {
+            realtimeJob.cancel()
             channel.unsubscribe()
             client.realtime.removeChannel(channel)
         }
-    }
+    }.distinctUntilChanged()
 
     private suspend fun fetchPendingCommands(deviceId: String): List<DeviceCommand> {
         ensureAuthenticated()
@@ -382,6 +420,7 @@ class FindMeRepository(
     }
 
     companion object {
+        private const val TAG = "FindMeRepository"
         // A single client and mutex prevent concurrent refresh-token rotation in one app process.
         private val processAuthenticationMutex = Mutex()
         private var lastSessionRefreshAtElapsedMs = 0L

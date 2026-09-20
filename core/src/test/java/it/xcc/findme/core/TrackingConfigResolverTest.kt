@@ -14,6 +14,7 @@ class TrackingConfigResolverTest {
         historyMultiplier = 2,
         onlyMovement = true,
         heartbeatIntervalSec = 90,
+        commandPollIntervalSec = 120,
     )
 
     @Test
@@ -23,6 +24,7 @@ class TrackingConfigResolverTest {
         assertEquals(60, config.locationIntervalSec)
         assertEquals(120, config.historyIntervalSec)
         assertEquals(90, config.heartbeatIntervalSec)
+        assertEquals(120, config.commandPollIntervalSec)
         assertFalse(config.liveTracking)
     }
 

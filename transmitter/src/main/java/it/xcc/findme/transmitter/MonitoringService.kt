@@ -41,6 +41,7 @@ import io.livekit.android.room.track.LocalVideoTrackOptions
 import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoCaptureParameter
 import it.xcc.findme.core.CommandType
+import it.xcc.findme.core.CommandRecoveryPolicy
 import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
 import it.xcc.findme.core.DeviceLocation
@@ -213,10 +214,22 @@ class MonitoringService : Service() {
                     launch { maintainMediaOnDemand() }
                     launch { throw recoverySignals.receive() }
                     launch {
-                        repository.commands(identity.id).collect { commands ->
-                            commands.filter { it.id !in appliedCommands }.forEach { command ->
-                                applyCommand(command.command)
-                                publishStatus()
+                        repository.commands(identity.id) {
+                            effectiveConfig.commandPollIntervalSec
+                        }.collect { commands ->
+                            val pending = commands.filter { it.id !in appliedCommands }
+                            val effectiveIds = CommandRecoveryPolicy.compact(pending)
+                                .mapNotNullTo(mutableSetOf()) { it.id }
+                            pending.forEach { command ->
+                                if (command.id == null || command.id in effectiveIds) {
+                                    applyCommand(command.command)
+                                    publishStatus()
+                                } else {
+                                    Log.i(
+                                        TAG,
+                                        "Skipping superseded command: ${command.command} id=${command.id}",
+                                    )
+                                }
                                 command.id?.let { commandId ->
                                     repository.acknowledgeCommand(commandId)
                                     appliedCommands += commandId
@@ -279,6 +292,7 @@ class MonitoringService : Service() {
                 "Tracking config: location=${updated.locationIntervalSec}s, " +
                     "history=${updated.historyIntervalSec}s, " +
                     "heartbeat=${updated.heartbeatIntervalSec}s, " +
+                    "commands=${updated.commandPollIntervalSec}s, " +
                     "live=${updated.liveTracking}, liveHistory=${updated.liveHistory}",
             )
         }
@@ -343,11 +357,58 @@ class MonitoringService : Service() {
     }
 
     private suspend fun maintainMediaOnDemand() {
+        var unhealthyChecks = 0
         while (scope.isActive && identity.monitoringEnabled) {
-            runCatching { syncMediaState() }
-                .onFailure { Log.e(TAG, "Media synchronization failed", it) }
+            runCatching {
+                syncMediaState()
+                if (isMediaStateHealthy()) {
+                    unhealthyChecks = 0
+                } else {
+                    unhealthyChecks++
+                    Log.w(TAG, "Media watchdog unhealthy check=$unhealthyChecks")
+                    if (ConnectionRecoveryPolicy.shouldRebuildMedia(unhealthyChecks)) {
+                        Log.w(TAG, "Media watchdog rebuilding LiveKit publisher")
+                        disconnectMediaRoom()
+                        syncMediaState()
+                        publishStatus()
+                        unhealthyChecks = 0
+                    }
+                }
+            }.onFailure {
+                unhealthyChecks++
+                Log.e(TAG, "Media synchronization failed", it)
+                if (ConnectionRecoveryPolicy.shouldRebuildMedia(unhealthyChecks)) {
+                    disconnectMediaRoom()
+                    requestMediaRecovery()
+                    unhealthyChecks = 0
+                }
+            }
             delay(MEDIA_WATCHDOG_INTERVAL_MS)
         }
+    }
+
+    private fun isMediaStateHealthy(): Boolean {
+        val shouldConnect = MediaConnectionPolicy.shouldConnect(
+            desiredCameraStreaming,
+            desiredMicrophoneStreaming,
+            desiredScreenStreaming,
+        )
+        val activeRoom = room
+        if (!shouldConnect) return activeRoom == null
+        if (activeRoom == null) return false
+        if (desiredCameraStreaming &&
+            (!cameraStreaming ||
+                activeRoom.localParticipant.getTrackPublication(Track.Source.CAMERA)?.track == null)
+        ) {
+            return false
+        }
+        if (desiredMicrophoneStreaming &&
+            (!microphoneStreaming ||
+                activeRoom.localParticipant.getTrackPublication(Track.Source.MICROPHONE)?.track == null)
+        ) {
+            return false
+        }
+        return !desiredScreenStreaming || screenStreaming && screenTrack != null
     }
 
     private suspend fun syncMediaState() = mediaMutex.withLock {
