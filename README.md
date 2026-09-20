@@ -126,6 +126,11 @@ dalla dashboard.
 La risposta alla domanda non viene salvata in chiaro: il database conserva
 soltanto un hash bcrypt.
 
+Manuali operativi con schermate reali (Markdown e PDF):
+
+- [`docs/MANUALE_UTENTE_TRASMETTITORE.md`](docs/MANUALE_UTENTE_TRASMETTITORE.md) · [PDF](docs/manuale/MANUALE_UTENTE_TRASMETTITORE.pdf)
+- [`docs/MANUALE_UTENTE_RICEVITORE.md`](docs/MANUALE_UTENTE_RICEVITORE.md) · [PDF](docs/manuale/MANUALE_UTENTE_RICEVITORE.pdf)
+
 Per database, Edge Function, LiveKit, mappe e Device Owner vedere
 [`docs/EXTERNAL_SETUP.md`](docs/EXTERNAL_SETUP.md).
 Per creare una build firmata e un QR Device Owner completo vedere

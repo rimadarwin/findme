@@ -468,7 +468,6 @@ class ReceiverActivity : ComponentActivity() {
                             selectedTab = tab
                         },
                         onBack = ::closeDetail,
-                        onAliasSave = { updateAlias(selected.device.id, it) },
                         onCommand = { command(selected, it) },
                         fastTrackingActive = fastTrackingDeviceId == selected.device.id,
                         fastHistoryActive =

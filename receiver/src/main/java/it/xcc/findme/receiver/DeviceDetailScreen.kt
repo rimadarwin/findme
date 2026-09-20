@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.MonitoredDevice
@@ -76,7 +77,6 @@ fun DeviceDetailScreen(
     audioLevel: Float,
     onTabSelected: (DeviceTab) -> Unit,
     onBack: () -> Unit,
-    onAliasSave: (String) -> Unit,
     onCommand: (CommandType) -> Unit,
     fastTrackingActive: Boolean,
     fastHistoryActive: Boolean,
@@ -114,7 +114,7 @@ fun DeviceDetailScreen(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            DeviceHeader(item, heartbeatIntervalSec, onBack, onAliasSave)
+            DeviceHeader(item, heartbeatIntervalSec, onBack)
             TabRow(
                 selectedTabIndex = selectedTab.ordinal,
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -198,7 +198,6 @@ private fun DeviceHeader(
     item: MonitoredDevice,
     heartbeatIntervalSec: Int,
     onBack: () -> Unit,
-    onAliasSave: (String) -> Unit,
 ) {
     val monitoringActive = item.isMonitoringActive(
         heartbeatIntervalSec = heartbeatIntervalSec,
@@ -225,7 +224,12 @@ private fun DeviceHeader(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                EditableDeviceName(item = item, onAliasSave = onAliasSave)
+                Text(
+                    item.displayName,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Text(
                     "${if (item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec)) "Online" else "Offline"}  •  " +
                         "Batteria ${item.status?.batteryPercent?.let { "$it%" } ?: "n/d"}",
@@ -563,19 +567,6 @@ private fun ScreenTab(
             onCheckedChange = {
                 onCommand(if (it) CommandType.START_SCREEN else CommandType.STOP_SCREEN)
             },
-        )
-        Text(
-            if (ready) {
-                "Trasmettitore autorizzato e pronto"
-            } else {
-                "Riattiva il mirroring dall’app del trasmettitore"
-            },
-            color = if (ready) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            style = MaterialTheme.typography.bodySmall,
         )
         RecordingControl(
             title = "Registra schermo",
