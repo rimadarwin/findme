@@ -1,3 +1,9 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Activity principale del ricevitore e coordinamento delle funzioni remote.
+ * @modified 23.09.2026 - MDS | Mantenuto il tracking rapido durante il blocco schermo.
+ * @modified 23.09.2026 - MDS | Aggiunto feedback verificato per i comandi multimediali.
+ */
 package it.xcc.findme.receiver
 
 import android.Manifest
@@ -61,7 +67,11 @@ import it.xcc.findme.core.DeviceIdentity
 import it.xcc.findme.core.DeviceRole
 import it.xcc.findme.core.FindMeRepository
 import it.xcc.findme.core.LocationHistoryDeletionPolicy
+import it.xcc.findme.core.MediaCommandFeedback
+import it.xcc.findme.core.MediaCommandPhase
+import it.xcc.findme.core.MediaCommandPolicy
 import it.xcc.findme.core.MediaConnectionPolicy
+import it.xcc.findme.core.MediaStreamKind
 import it.xcc.findme.core.MonitoredDevice
 import it.xcc.findme.core.ReceiverProfile
 import it.xcc.findme.core.ReceiverPowerPolicy
@@ -91,6 +101,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 class ReceiverActivity : ComponentActivity() {
@@ -151,6 +162,11 @@ class ReceiverActivity : ComponentActivity() {
     private var screenRecordingTimerJob: Job? = null
     private var voiceMessageTimerJob: Job? = null
     private var voiceMessageDeliveryJob: Job? = null
+    private var mediaCommandFeedback by mutableStateOf<Map<MediaStreamKind, MediaCommandFeedback>>(
+        emptyMap(),
+    )
+    private val mediaCommandTimeoutJobs = mutableMapOf<MediaStreamKind, Job>()
+    private var mediaCommandRequestSequence = 0L
     private var dataPlaneJob: Job? = null
     private var trackingLeaseJob: Job? = null
     private var roomEventsJob: Job? = null
@@ -250,7 +266,7 @@ class ReceiverActivity : ComponentActivity() {
                 mediaActive = shouldMaintainMediaSession(),
             )
         ) {
-            Log.i(TAG, "Keeping active media session while receiver screen is locked")
+            Log.i(TAG, "Keeping active remote session while receiver screen is locked")
             updateMediaPowerProtection()
         } else {
             selectedDeviceId?.let(::stopAllStreams)
@@ -266,6 +282,8 @@ class ReceiverActivity : ComponentActivity() {
         if (screenFullscreenDeviceId != null) closeScreenFullscreen()
         if (historyFullscreenActive) setHistoryFullscreen(false)
         voiceMessageDeliveryJob?.cancel()
+        mediaCommandTimeoutJobs.values.forEach { it.cancel() }
+        mediaCommandTimeoutJobs.clear()
         discardVoiceMessage()
         disconnectMedia()
         releaseMediaPowerProtection()
@@ -469,6 +487,9 @@ class ReceiverActivity : ComponentActivity() {
                         },
                         onBack = ::closeDetail,
                         onCommand = { command(selected, it) },
+                        mediaCommandFeedback = mediaCommandFeedback.filterValues {
+                            it.deviceId == selected.device.id
+                        },
                         fastTrackingActive = fastTrackingDeviceId == selected.device.id,
                         fastHistoryActive =
                             fastTrackingDeviceId == selected.device.id && fastHistory,
@@ -708,6 +729,7 @@ class ReceiverActivity : ComponentActivity() {
 
     private fun handleDeviceRows(rows: List<MonitoredDevice>) {
         devices = rows
+        reconcileMediaCommandFeedback(rows)
         if (message.startsWith("Connessione temporaneamente assente")) {
             message = ""
         }
@@ -1227,9 +1249,13 @@ class ReceiverActivity : ComponentActivity() {
         Log.d(TAG, "Fullscreen orientation unlocked; system preference restored")
     }
 
+    /**
+     * Avvia il lease rapido e protegge la sessione anche durante il blocco schermo.
+     */
     private fun startFastTracking(deviceId: String) {
         fastTrackingDeviceId = deviceId
         fastHistory = false
+        updateMediaPowerProtection()
         trackingLeaseJob?.cancel()
         trackingLeaseJob = lifecycleScope.launch {
             while (isActive && fastTrackingDeviceId == deviceId) {
@@ -1255,12 +1281,16 @@ class ReceiverActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Arresta il rinnovo rapido e rilascia la protezione se non restano altre attività.
+     */
     private fun stopFastTracking() {
         val deviceId = fastTrackingDeviceId
         trackingLeaseJob?.cancel()
         trackingLeaseJob = null
         fastTrackingDeviceId = null
         fastHistory = false
+        updateMediaPowerProtection()
         if (deviceId != null) {
             lifecycleScope.launch {
                 runCatching {
@@ -1288,16 +1318,131 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun command(device: MonitoredDevice, type: CommandType) {
+        val target = MediaCommandPolicy.target(type)
+        if (target != null) {
+            sendMediaCommand(device, type, target.stream, target.enabled)
+            return
+        }
+        lifecycleScope.launch {
+            runCatching { repository!!.sendCommand(device.device.id, type) }
+                .onFailure { requestDataPlaneRecovery(it, "Invio comando non riuscito.") }
+        }
+    }
+
+    /**
+     * Invia un comando multimediale mostrando subito lo stato richiesto e impedendo duplicati.
+     */
+    private fun sendMediaCommand(
+        device: MonitoredDevice,
+        type: CommandType,
+        stream: MediaStreamKind,
+        targetEnabled: Boolean,
+    ) {
+        val activeFeedback = mediaCommandFeedback[stream]
+        if (activeFeedback != null && activeFeedback.phase != MediaCommandPhase.FAILED) return
         when (type) {
             CommandType.STOP_VIDEO -> stopVideoRecording()
             CommandType.STOP_AUDIO -> stopAudioRecording()
             CommandType.STOP_SCREEN -> stopScreenRecording()
             else -> Unit
         }
-        lifecycleScope.launch {
-            runCatching { repository!!.sendCommand(device.device.id, type) }
-                .onFailure { requestDataPlaneRecovery(it, "Invio comando non riuscito.") }
+
+        val feedback = MediaCommandFeedback(
+            requestId = ++mediaCommandRequestSequence,
+            deviceId = device.device.id,
+            stream = stream,
+            targetEnabled = targetEnabled,
+            phase = MediaCommandPhase.SENDING,
+            startedElapsedMs = SystemClock.elapsedRealtime(),
+        )
+        setMediaCommandFeedback(feedback)
+        mediaCommandTimeoutJobs.remove(stream)?.cancel()
+        mediaCommandTimeoutJobs[stream] = lifecycleScope.launch {
+            val sendResult = runCatching {
+                withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
+                    repository!!.sendCommand(device.device.id, type)
+                }
+            }
+            if (sendResult.isFailure) {
+                val error = sendResult.exceptionOrNull()!!
+                if (error is CancellationException) return@launch
+                updateMediaCommandFeedback(feedback.requestId) {
+                    it.copy(
+                        phase = MediaCommandPhase.FAILED,
+                        errorMessage = "Invio non riuscito. Tocca per riprovare.",
+                    )
+                }
+                requestDataPlaneRecovery(
+                    error,
+                    "Invio comando non riuscito.",
+                )
+                return@launch
+            }
+
+            val currentStatus = devices.firstOrNull {
+                it.device.id == feedback.deviceId
+            }?.status
+            if (MediaCommandPolicy.isConfirmed(feedback, currentStatus)) {
+                clearMediaCommandFeedback(feedback)
+                return@launch
+            }
+            updateMediaCommandFeedback(feedback.requestId) {
+                it.copy(phase = MediaCommandPhase.AWAITING_CONFIRMATION)
+            }
+            val elapsedMs = SystemClock.elapsedRealtime() - feedback.startedElapsedMs
+            delay((MediaCommandPolicy.CONFIRMATION_TIMEOUT_MS - elapsedMs).coerceAtLeast(0L))
+            val pending = mediaCommandFeedback[stream]
+            if (pending?.requestId == feedback.requestId &&
+                MediaCommandPolicy.hasTimedOut(pending, SystemClock.elapsedRealtime())
+            ) {
+                updateMediaCommandFeedback(feedback.requestId) {
+                    it.copy(
+                        phase = MediaCommandPhase.FAILED,
+                        errorMessage = "Il dispositivo non ha confermato. Tocca per riprovare.",
+                    )
+                }
+            }
         }
+    }
+
+    /**
+     * Rimuove le attese quando lo stato pubblicato conferma il comando richiesto.
+     */
+    private fun reconcileMediaCommandFeedback(rows: List<MonitoredDevice>) {
+        mediaCommandFeedback.values.toList().forEach { feedback ->
+            val status = rows.firstOrNull { it.device.id == feedback.deviceId }?.status
+            if (MediaCommandPolicy.isConfirmed(feedback, status)) {
+                clearMediaCommandFeedback(feedback)
+            }
+        }
+    }
+
+    /**
+     * Registra un nuovo feedback rendendolo osservabile dalla UI Compose.
+     */
+    private fun setMediaCommandFeedback(feedback: MediaCommandFeedback) {
+        mediaCommandFeedback = mediaCommandFeedback + (feedback.stream to feedback)
+    }
+
+    /**
+     * Aggiorna soltanto la richiesta ancora corrente, evitando race con un nuovo tentativo.
+     */
+    private fun updateMediaCommandFeedback(
+        requestId: Long,
+        transform: (MediaCommandFeedback) -> MediaCommandFeedback,
+    ) {
+        val current = mediaCommandFeedback.values.firstOrNull { it.requestId == requestId } ?: return
+        setMediaCommandFeedback(transform(current))
+    }
+
+    /**
+     * Chiude l'attesa confermata e annulla il relativo timeout.
+     */
+    private fun clearMediaCommandFeedback(feedback: MediaCommandFeedback) {
+        val current = mediaCommandFeedback[feedback.stream]
+        if (current?.requestId != feedback.requestId) return
+        mediaCommandFeedback = mediaCommandFeedback - feedback.stream
+        mediaCommandTimeoutJobs.remove(feedback.stream)?.cancel()
     }
 
     private fun toggleVoiceMessageRecording(device: MonitoredDevice) {
@@ -1470,6 +1615,9 @@ class ReceiverActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Verifica se media, registrazioni o tracking rapido richiedono una sessione protetta.
+     */
     private fun shouldMaintainMediaSession(): Boolean {
         val selectedStatus = selectedDeviceId
             ?.let { selectedId -> devices.firstOrNull { it.device.id == selectedId } }
@@ -1481,10 +1629,14 @@ class ReceiverActivity : ComponentActivity() {
             videoRecording = videoRecordingState.isActive,
             audioRecording = audioRecordingState.isActive,
             screenRecording = screenRecordingState.isActive,
+            fastTrackingActive = fastTrackingDeviceId != null,
         )
     }
 
     @SuppressLint("WakelockTimeout")
+    /**
+     * Allinea wake lock e blocco spegnimento display allo stato della sessione.
+     */
     private fun updateMediaPowerProtection() {
         val shouldProtect = shouldMaintainMediaSession()
         if (shouldProtect) {

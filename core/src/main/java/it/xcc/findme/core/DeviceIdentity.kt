@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Identità locale del dispositivo e cache delle impostazioni tracking.
+ * @modified 23.09.2026 - MDS | Aggiornato il fallback del polling comandi a cinque secondi.
+ */
 package it.xcc.findme.core
 
 import android.content.Context
@@ -31,6 +36,9 @@ class DeviceIdentity(context: Context) {
         get() = preferences.getBoolean(KEY_SCREEN_PROJECTION_ONBOARDING, false)
         set(value) = preferences.edit().putBoolean(KEY_SCREEN_PROJECTION_ONBOARDING, value).apply()
 
+    /**
+     * Ricostruisce l'ultima configurazione tracking disponibile localmente.
+     */
     fun cachedTrackingState(): TrackingRuntimeState? {
         val receiverId = preferences.getString(KEY_TRACKING_RECEIVER_ID, null) ?: return null
         return TrackingRuntimeState(
@@ -41,7 +49,7 @@ class DeviceIdentity(context: Context) {
                 historyMultiplier = preferences.getInt(KEY_TRACKING_HISTORY_MULTIPLIER, 2),
                 onlyMovement = preferences.getBoolean(KEY_TRACKING_ONLY_MOVEMENT, true),
                 heartbeatIntervalSec = preferences.getInt(KEY_TRACKING_HEARTBEAT, 60),
-                commandPollIntervalSec = preferences.getInt(KEY_COMMAND_POLL_INTERVAL, 60),
+                commandPollIntervalSec = preferences.getInt(KEY_COMMAND_POLL_INTERVAL, 5),
                 geofenceRadiusM = preferences.getInt(KEY_GEOFENCE_RADIUS, 100),
             ),
             relationship = ReceiverTransmitter(
@@ -53,6 +61,9 @@ class DeviceIdentity(context: Context) {
         )
     }
 
+    /**
+     * Salva la configurazione tracking per l'avvio senza rete.
+     */
     fun cacheTrackingState(state: TrackingRuntimeState) {
         preferences.edit()
             .putString(KEY_TRACKING_RECEIVER_ID, state.settings.receiverId)

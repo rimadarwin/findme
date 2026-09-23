@@ -1,3 +1,9 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Schermata di dettaglio del trasmettitore e controlli remoti.
+ * @modified 23.09.2026 - MDS | Chiarita disponibilità e persistenza del tracking rapido.
+ * @modified 23.09.2026 - MDS | Aggiunto feedback immediato e verificato agli switch multimediali.
+ */
 package it.xcc.findme.receiver
 
 import android.graphics.Bitmap
@@ -53,6 +59,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import it.xcc.findme.core.CommandType
+import it.xcc.findme.core.MediaCommandFeedback
+import it.xcc.findme.core.MediaCommandPhase
+import it.xcc.findme.core.MediaCommandPolicy
+import it.xcc.findme.core.MediaStreamKind
 import it.xcc.findme.core.MonitoredDevice
 import it.xcc.findme.core.VoiceMessagePolicy
 import it.xcc.findme.core.VoiceMessageVolume
@@ -78,6 +88,7 @@ fun DeviceDetailScreen(
     onTabSelected: (DeviceTab) -> Unit,
     onBack: () -> Unit,
     onCommand: (CommandType) -> Unit,
+    mediaCommandFeedback: Map<MediaStreamKind, MediaCommandFeedback>,
     fastTrackingActive: Boolean,
     fastHistoryActive: Boolean,
     onFastTrackingChange: (Boolean) -> Unit,
@@ -150,6 +161,7 @@ fun DeviceDetailScreen(
                     item = item,
                     heartbeatIntervalSec = heartbeatIntervalSec,
                     onCommand = onCommand,
+                    commandFeedback = mediaCommandFeedback[MediaStreamKind.VIDEO],
                     onTakePhoto = onTakePhoto,
                     trackAvailable = videoTrackAvailable,
                     recordingState = videoRecordingState,
@@ -161,6 +173,7 @@ fun DeviceDetailScreen(
                     heartbeatIntervalSec = heartbeatIntervalSec,
                     audioLevel = audioLevel,
                     onCommand = onCommand,
+                    commandFeedback = mediaCommandFeedback[MediaStreamKind.AUDIO],
                     trackAvailable = audioTrackAvailable,
                     recordingState = audioRecordingState,
                     onRecordingToggle = onAudioRecordingToggle,
@@ -176,6 +189,7 @@ fun DeviceDetailScreen(
                     item = item,
                     heartbeatIntervalSec = heartbeatIntervalSec,
                     onCommand = onCommand,
+                    commandFeedback = mediaCommandFeedback[MediaStreamKind.SCREEN],
                     trackAvailable = screenTrackAvailable,
                     recordingState = screenRecordingState,
                     onRecordingToggle = onScreenRecordingToggle,
@@ -347,12 +361,17 @@ internal fun PositionControls(
 ) {
     val geofence = item.relationship
     val geofenceActive = geofence?.geofenceEnabled == true
+    val deviceOnline = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TrackingControl(
             title = "Aggiornamento rapido",
-            description = "Richiede posizioni più frequenti finché questa vista resta attiva.",
+            description = if (deviceOnline) {
+                "Resta attivo col telefono bloccato, finché lo disattivi o chiudi il dettaglio."
+            } else {
+                "Disponibile quando il trasmettitore torna online."
+            },
             checked = fastTrackingActive,
-            enabled = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec),
+            enabled = deviceOnline,
             icon = {
                 Icon(
                     if (fastTrackingActive) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
@@ -382,7 +401,7 @@ internal fun PositionControls(
             checked = geofenceActive,
             enabled = geofenceActive ||
                 (item.location != null &&
-                    item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec)),
+                    deviceOnline),
             icon = {
                 Icon(
                     if (geofenceActive) {
@@ -455,6 +474,7 @@ private fun VideoTab(
     item: MonitoredDevice,
     heartbeatIntervalSec: Int,
     onCommand: (CommandType) -> Unit,
+    commandFeedback: MediaCommandFeedback?,
     onTakePhoto: () -> Unit,
     trackAvailable: Boolean,
     recordingState: LocalRecordingState,
@@ -470,9 +490,10 @@ private fun VideoTab(
     ) {
         MediaSwitch(
             title = "Streaming video",
-            checked = streaming,
+            checked = MediaCommandPolicy.displayedValue(streaming, commandFeedback),
             enabled = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec) &&
                 item.status?.cameraAvailable == true,
+            feedback = commandFeedback,
             onCheckedChange = {
                 onCommand(if (it) CommandType.START_VIDEO else CommandType.STOP_VIDEO)
             },
@@ -546,6 +567,7 @@ private fun ScreenTab(
     item: MonitoredDevice,
     heartbeatIntervalSec: Int,
     onCommand: (CommandType) -> Unit,
+    commandFeedback: MediaCommandFeedback?,
     trackAvailable: Boolean,
     recordingState: LocalRecordingState,
     onRecordingToggle: () -> Unit,
@@ -562,8 +584,9 @@ private fun ScreenTab(
     ) {
         MediaSwitch(
             title = "Mirroring schermo",
-            checked = streaming,
+            checked = MediaCommandPolicy.displayedValue(streaming, commandFeedback),
             enabled = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec) && ready,
+            feedback = commandFeedback,
             onCheckedChange = {
                 onCommand(if (it) CommandType.START_SCREEN else CommandType.STOP_SCREEN)
             },
@@ -649,6 +672,7 @@ private fun AudioTab(
     heartbeatIntervalSec: Int,
     audioLevel: Float,
     onCommand: (CommandType) -> Unit,
+    commandFeedback: MediaCommandFeedback?,
     trackAvailable: Boolean,
     recordingState: LocalRecordingState,
     onRecordingToggle: () -> Unit,
@@ -670,9 +694,10 @@ private fun AudioTab(
     ) {
         MediaSwitch(
             title = "Streaming audio",
-            checked = streaming,
+            checked = MediaCommandPolicy.displayedValue(streaming, commandFeedback),
             enabled = item.isOnline(heartbeatIntervalSec = heartbeatIntervalSec) &&
                 item.status?.microphoneAvailable == true,
+            feedback = commandFeedback,
             onCheckedChange = {
                 onCommand(if (it) CommandType.START_AUDIO else CommandType.STOP_AUDIO)
             },
@@ -851,27 +876,57 @@ private fun MediaSwitch(
     title: String,
     checked: Boolean,
     enabled: Boolean,
+    feedback: MediaCommandFeedback?,
     onCheckedChange: (Boolean) -> Unit,
     action: (@Composable () -> Unit)? = null,
 ) {
+    val requestActive = feedback != null && feedback.phase != MediaCommandPhase.FAILED
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            action?.invoke()
-            Switch(
-                checked = checked,
-                enabled = enabled,
-                onCheckedChange = onCheckedChange,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                action?.invoke()
+                if (requestActive) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+                Switch(
+                    checked = checked,
+                    enabled = enabled && !requestActive,
+                    onCheckedChange = onCheckedChange,
+                )
+            }
+            feedback?.let {
+                Text(
+                    text = when (it.phase) {
+                        MediaCommandPhase.SENDING -> "Invio comando…"
+                        MediaCommandPhase.AWAITING_CONFIRMATION ->
+                            "Comando inviato, attendo il dispositivo…"
+                        MediaCommandPhase.FAILED ->
+                            it.errorMessage ?: "Comando non confermato. Tocca per riprovare."
+                    },
+                    color = if (it.phase == MediaCommandPhase.FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 }

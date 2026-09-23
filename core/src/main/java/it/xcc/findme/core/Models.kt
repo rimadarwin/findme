@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Modelli serializzabili condivisi tra ricevitore e trasmettitore.
+ * @modified 23.09.2026 - MDS | Impostato a cinque secondi il polling comandi predefinito.
+ */
 @file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 
 package it.xcc.findme.core
@@ -136,7 +141,7 @@ data class ReceiverTrackingSettings(
     @EncodeDefault
     @SerialName("only_movement") val onlyMovement: Boolean = true,
     @SerialName("heartbeat_interval_sec") val heartbeatIntervalSec: Int = 60,
-    @SerialName("command_poll_interval_sec") val commandPollIntervalSec: Int = 60,
+    @SerialName("command_poll_interval_sec") val commandPollIntervalSec: Int = 5,
     @SerialName("geofence_radius_m") val geofenceRadiusM: Int = 100,
 )
 
@@ -258,6 +263,9 @@ data class MonitoredDevice(
     val hasAlias: Boolean
         get() = !alias.isNullOrBlank()
 
+    /**
+     * Determina se l'heartbeat del dispositivo è ancora recente.
+     */
     fun isOnline(
         nowMillis: Long = System.currentTimeMillis(),
         heartbeatIntervalSec: Int = 60,
@@ -269,6 +277,9 @@ data class MonitoredDevice(
         return nowMillis - heartbeatMillis < heartbeatIntervalSec * 2_000L
     }
 
+    /**
+     * Verifica che monitoraggio e connessione risultino entrambi attivi.
+     */
     fun isMonitoringActive(
         nowMillis: Long = System.currentTimeMillis(),
         heartbeatIntervalSec: Int = 60,

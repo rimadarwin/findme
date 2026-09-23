@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Schermata delle impostazioni di tracking e recupero connessione.
+ * @modified 23.09.2026 - MDS | Aggiunte frequenze rapide per il recupero dei comandi.
+ */
 package it.xcc.findme.receiver
 
 import androidx.compose.foundation.clickable
@@ -41,6 +46,9 @@ import it.xcc.findme.core.ReceiverTrackingSettings
 import it.xcc.findme.core.TrackingSettingsUpdate
 
 @Composable
+/**
+ * Mostra e aggiorna le impostazioni condivise del ricevitore.
+ */
 fun TrackingSettingsScreen(
     settings: ReceiverTrackingSettings,
     devices: List<MonitoredDevice>,
@@ -132,7 +140,7 @@ fun TrackingSettingsScreen(
         SettingOptions(
             title = "Frequenza controllo comandi",
             description = "Polling di sicurezza se il canale in tempo reale non risponde.",
-            values = listOf(30, 60, 120, 300),
+            values = listOf(5, 15, 30, 60, 120, 300),
             selected = settings.commandPollIntervalSec,
             label = { "$it s" },
             onSelected = {
@@ -208,6 +216,9 @@ fun TrackingSettingsScreen(
 }
 
 @Composable
+/**
+ * Consente di scegliere i dispositivi di cui cancellare lo storico.
+ */
 private fun HistoryDeviceSelectionDialog(
     devices: List<MonitoredDevice>,
     selectedDeviceIds: Set<String>,
@@ -285,6 +296,9 @@ private fun HistoryDeviceSelectionDialog(
 }
 
 @Composable
+/**
+ * Richiede conferma esplicita prima della cancellazione definitiva.
+ */
 private fun HistoryDeletionConfirmationDialog(
     devices: List<MonitoredDevice>,
     onDismiss: () -> Unit,
@@ -319,6 +333,9 @@ private fun HistoryDeletionConfirmationDialog(
 }
 
 @Composable
+/**
+ * Visualizza una selezione orizzontale di valori ammessi.
+ */
 private fun <T> SettingOptions(
     title: String,
     description: String,
@@ -360,6 +377,9 @@ private fun <T> SettingOptions(
 }
 
 @Composable
+/**
+ * Visualizza una singola impostazione booleana.
+ */
 private fun BooleanSetting(
     title: String,
     description: String,
@@ -393,6 +413,9 @@ private fun BooleanSetting(
     }
 }
 
+/**
+ * Converte lo stato corrente nell'aggiornamento serializzabile.
+ */
 private fun ReceiverTrackingSettings.toUpdate(
     offlineLocationIntervalSec: Int = this.offlineLocationIntervalSec,
     onlineLocationIntervalSec: Int = this.onlineLocationIntervalSec,

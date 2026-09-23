@@ -1,3 +1,9 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Stato tecnico e indicazioni di passaggio del progetto FindMe.
+ * @modified 23.09.2026 - MDS | Documentata la persistenza del tracking rapido al blocco.
+ * @modified 23.09.2026 - MDS | Documentato il feedback dei comandi multimediali.
+ */
 # Handoff
 
 ## Stato
@@ -71,10 +77,16 @@ Evoluzioni implementate e validate sui dispositivi reali:
   sessione esplicito, rinnovo periodico Realtime, watchdog heartbeat, retry
   esponenziale e riavvio immediato del piano dati al ritorno della rete.
 - recupero comandi ibrido: Realtime per la bassa latenza e polling REST
-  configurabile 30/60/120/300 secondi indipendente dal WebSocket; il fetch
+  configurabile 5/15/30/60/120/300 secondi indipendente dal WebSocket; il fetch
   iniziale precede sempre la sottoscrizione e il publisher LiveKit viene
   ricostruito dopo tre controlli media consecutivi non validi. Gli arretrati
   sono compattati all’ultimo stato audio/video/schermo prima dell’applicazione.
+- feedback immediato dei comandi video, audio e mirroring con switch ottimistico
+  bloccato durante l’invio, conferma sullo stato reale, timeout a 20 secondi e
+  possibilità di riprovare senza generare comandi duplicati.
+- tracking e storico rapidi protetti come una sessione media: il lease continua
+  a rinnovarsi col ricevitore bloccato e termina soltanto alla disattivazione,
+  alla chiusura del dettaglio o al normale passaggio in background.
 - esenzione dall’ottimizzazione batteria richiedibile dalla dashboard del
   trasmettitore; sui firmware Xiaomi resta necessaria anche l’impostazione
   proprietaria “Nessuna restrizione”.
@@ -91,7 +103,8 @@ Le migrazioni `202609160005_media_state.sql`,
 `202609200001_command_recovery.sql` e
 `202609200002_voice_messages_schema.sql` e
 `202609200003_voice_messages_rpc.sql` e
-`202609200004_voice_storage_policy_fix.sql` devono essere applicate prima di
+`202609200004_voice_storage_policy_fix.sql` e
+`202609230001_fast_command_recovery.sql` devono essere applicate prima di
 installare le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano
