@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Test della policy di feedback dei comandi multimediali.
+ * @modified 23.09.2026 - MDS | Aggiunti test di conferma del cambio fotocamera.
  * @modified 23.09.2026 - MDS | Aggiunti test per destinazione, conferma e timeout.
  */
 package it.xcc.findme.core
@@ -69,6 +70,41 @@ class MediaCommandPolicyTest {
     }
 
     /**
+     * Verifica che il cambio camera richieda stream attivo e facing differente.
+     */
+    @Test
+    fun `camera switch is confirmed by changed remote facing`() {
+        val feedback = CameraSwitchFeedback(
+            requestId = 2L,
+            deviceId = "transmitter",
+            initialFacing = "front",
+            phase = MediaCommandPhase.AWAITING_CONFIRMATION,
+            startedElapsedMs = 1_000L,
+        )
+
+        assertFalse(
+            MediaCommandPolicy.isCameraSwitchConfirmed(
+                feedback,
+                status(cameraStreaming = true, cameraFacing = "front"),
+            ),
+        )
+        assertTrue(
+            MediaCommandPolicy.isCameraSwitchConfirmed(
+                feedback,
+                status(cameraStreaming = true, cameraFacing = "back"),
+            ),
+        )
+        assertFalse(
+            MediaCommandPolicy.isCameraSwitchConfirmed(
+                feedback,
+                status(cameraStreaming = false, cameraFacing = "back"),
+            ),
+        )
+        assertFalse(MediaCommandPolicy.hasCameraSwitchTimedOut(feedback, 20_999L))
+        assertTrue(MediaCommandPolicy.hasCameraSwitchTimedOut(feedback, 21_000L))
+    }
+
+    /**
      * Crea un feedback standard per isolare i casi di test.
      */
     private fun feedback(
@@ -87,9 +123,13 @@ class MediaCommandPolicyTest {
     /**
      * Crea uno stato trasmettitore minimo con il valore video richiesto.
      */
-    private fun status(cameraStreaming: Boolean) = DeviceStatus(
+    private fun status(
+        cameraStreaming: Boolean,
+        cameraFacing: String = "front",
+    ) = DeviceStatus(
         deviceId = "transmitter",
         isMonitoring = true,
         cameraStreaming = cameraStreaming,
+        cameraFacing = cameraFacing,
     )
 }

@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Activity principale del ricevitore e coordinamento delle funzioni remote.
+ * @modified 23.09.2026 - MDS | Forzato il portrait in uscita e aggiunto feedback cambio camera.
  * @modified 23.09.2026 - MDS | Mantenuto il tracking rapido durante il blocco schermo.
  * @modified 23.09.2026 - MDS | Aggiunto feedback verificato per i comandi multimediali.
  */
@@ -61,6 +62,7 @@ import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoTrack
 import livekit.org.webrtc.RendererCommon
 import it.xcc.findme.core.AppConfig
+import it.xcc.findme.core.CameraSwitchFeedback
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
@@ -167,6 +169,8 @@ class ReceiverActivity : ComponentActivity() {
     )
     private val mediaCommandTimeoutJobs = mutableMapOf<MediaStreamKind, Job>()
     private var mediaCommandRequestSequence = 0L
+    private var cameraSwitchFeedback by mutableStateOf<CameraSwitchFeedback?>(null)
+    private var cameraSwitchTimeoutJob: Job? = null
     private var dataPlaneJob: Job? = null
     private var trackingLeaseJob: Job? = null
     private var roomEventsJob: Job? = null
@@ -284,6 +288,7 @@ class ReceiverActivity : ComponentActivity() {
         voiceMessageDeliveryJob?.cancel()
         mediaCommandTimeoutJobs.values.forEach { it.cancel() }
         mediaCommandTimeoutJobs.clear()
+        cameraSwitchTimeoutJob?.cancel()
         discardVoiceMessage()
         disconnectMedia()
         releaseMediaPowerProtection()
@@ -389,6 +394,7 @@ class ReceiverActivity : ComponentActivity() {
                 }
                 LocationHistoryScreen(
                     device = historyDevice,
+                    fullscreen = historyFullscreenActive,
                     onBack = { historyDeviceId = null },
                     onFullscreenChange = ::setHistoryFullscreen,
                     loadRoute = { from, to ->
@@ -488,6 +494,9 @@ class ReceiverActivity : ComponentActivity() {
                         onBack = ::closeDetail,
                         onCommand = { command(selected, it) },
                         mediaCommandFeedback = mediaCommandFeedback.filterValues {
+                            it.deviceId == selected.device.id
+                        },
+                        cameraSwitchFeedback = cameraSwitchFeedback?.takeIf {
                             it.deviceId == selected.device.id
                         },
                         fastTrackingActive = fastTrackingDeviceId == selected.device.id,
@@ -730,6 +739,7 @@ class ReceiverActivity : ComponentActivity() {
     private fun handleDeviceRows(rows: List<MonitoredDevice>) {
         devices = rows
         reconcileMediaCommandFeedback(rows)
+        reconcileCameraSwitchFeedback(rows)
         if (message.startsWith("Connessione temporaneamente assente")) {
             message = ""
         }
@@ -1245,8 +1255,8 @@ class ReceiverActivity : ComponentActivity() {
         WindowCompat.getInsetsController(window, window.decorView)
             .show(WindowInsetsCompat.Type.systemBars())
         WindowCompat.setDecorFitsSystemWindows(window, true)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        Log.d(TAG, "Fullscreen orientation unlocked; system preference restored")
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        Log.d(TAG, "Fullscreen closed; portrait orientation restored")
     }
 
     /**
@@ -1318,6 +1328,10 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun command(device: MonitoredDevice, type: CommandType) {
+        if (type == CommandType.SWITCH_CAMERA) {
+            sendCameraSwitchCommand(device)
+            return
+        }
         val target = MediaCommandPolicy.target(type)
         if (target != null) {
             sendMediaCommand(device, type, target.stream, target.enabled)
@@ -1341,7 +1355,10 @@ class ReceiverActivity : ComponentActivity() {
         val activeFeedback = mediaCommandFeedback[stream]
         if (activeFeedback != null && activeFeedback.phase != MediaCommandPhase.FAILED) return
         when (type) {
-            CommandType.STOP_VIDEO -> stopVideoRecording()
+            CommandType.STOP_VIDEO -> {
+                stopVideoRecording()
+                cameraSwitchFeedback?.let(::clearCameraSwitchFeedback)
+            }
             CommandType.STOP_AUDIO -> stopAudioRecording()
             CommandType.STOP_SCREEN -> stopScreenRecording()
             else -> Unit
@@ -1443,6 +1460,102 @@ class ReceiverActivity : ComponentActivity() {
         if (current?.requestId != feedback.requestId) return
         mediaCommandFeedback = mediaCommandFeedback - feedback.stream
         mediaCommandTimeoutJobs.remove(feedback.stream)?.cancel()
+    }
+
+    /**
+     * Invia un solo cambio camera e attende che il facing remoto sia realmente variato.
+     */
+    private fun sendCameraSwitchCommand(device: MonitoredDevice) {
+        val active = cameraSwitchFeedback
+        if (active != null && active.phase != MediaCommandPhase.FAILED) return
+        val feedback = CameraSwitchFeedback(
+            requestId = ++mediaCommandRequestSequence,
+            deviceId = device.device.id,
+            initialFacing = device.status?.cameraFacing ?: "front",
+            phase = MediaCommandPhase.SENDING,
+            startedElapsedMs = SystemClock.elapsedRealtime(),
+        )
+        cameraSwitchFeedback = feedback
+        cameraSwitchTimeoutJob?.cancel()
+        cameraSwitchTimeoutJob = lifecycleScope.launch {
+            val sendResult = runCatching {
+                withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
+                    repository!!.sendCommand(device.device.id, CommandType.SWITCH_CAMERA)
+                }
+            }
+            if (sendResult.isFailure) {
+                val error = sendResult.exceptionOrNull()!!
+                if (error is CancellationException) return@launch
+                updateCameraSwitchFeedback(feedback.requestId) {
+                    it.copy(
+                        phase = MediaCommandPhase.FAILED,
+                        errorMessage = "Cambio fotocamera non inviato. Tocca per riprovare.",
+                    )
+                }
+                requestDataPlaneRecovery(error, "Cambio fotocamera non riuscito.")
+                return@launch
+            }
+
+            val currentStatus = devices.firstOrNull {
+                it.device.id == feedback.deviceId
+            }?.status
+            if (MediaCommandPolicy.isCameraSwitchConfirmed(feedback, currentStatus)) {
+                clearCameraSwitchFeedback(feedback)
+                return@launch
+            }
+            updateCameraSwitchFeedback(feedback.requestId) {
+                it.copy(phase = MediaCommandPhase.AWAITING_CONFIRMATION)
+            }
+            val elapsedMs = SystemClock.elapsedRealtime() - feedback.startedElapsedMs
+            delay((MediaCommandPolicy.CONFIRMATION_TIMEOUT_MS - elapsedMs).coerceAtLeast(0L))
+            val pending = cameraSwitchFeedback
+            if (pending?.requestId == feedback.requestId &&
+                MediaCommandPolicy.hasCameraSwitchTimedOut(
+                    pending,
+                    SystemClock.elapsedRealtime(),
+                )
+            ) {
+                updateCameraSwitchFeedback(feedback.requestId) {
+                    it.copy(
+                        phase = MediaCommandPhase.FAILED,
+                        errorMessage = "Cambio non confermato. Tocca per riprovare.",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Chiude l'attesa quando il trasmettitore pubblica il nuovo facing.
+     */
+    private fun reconcileCameraSwitchFeedback(rows: List<MonitoredDevice>) {
+        val feedback = cameraSwitchFeedback ?: return
+        val status = rows.firstOrNull { it.device.id == feedback.deviceId }?.status
+        if (MediaCommandPolicy.isCameraSwitchConfirmed(feedback, status)) {
+            clearCameraSwitchFeedback(feedback)
+        }
+    }
+
+    /**
+     * Aggiorna il cambio camera soltanto se appartiene alla richiesta corrente.
+     */
+    private fun updateCameraSwitchFeedback(
+        requestId: Long,
+        transform: (CameraSwitchFeedback) -> CameraSwitchFeedback,
+    ) {
+        val current = cameraSwitchFeedback ?: return
+        if (current.requestId != requestId) return
+        cameraSwitchFeedback = transform(current)
+    }
+
+    /**
+     * Rimuove il feedback camera confermato e annulla il timeout associato.
+     */
+    private fun clearCameraSwitchFeedback(feedback: CameraSwitchFeedback) {
+        if (cameraSwitchFeedback?.requestId != feedback.requestId) return
+        cameraSwitchFeedback = null
+        cameraSwitchTimeoutJob?.cancel()
+        cameraSwitchTimeoutJob = null
     }
 
     private fun toggleVoiceMessageRecording(device: MonitoredDevice) {

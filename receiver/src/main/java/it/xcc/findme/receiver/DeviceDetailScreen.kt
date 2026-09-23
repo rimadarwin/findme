@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Schermata di dettaglio del trasmettitore e controlli remoti.
+ * @modified 23.09.2026 - MDS | Aggiunto indicatore durante il cambio fotocamera.
  * @modified 23.09.2026 - MDS | Chiarita disponibilità e persistenza del tracking rapido.
  * @modified 23.09.2026 - MDS | Aggiunto feedback immediato e verificato agli switch multimediali.
  */
@@ -58,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import it.xcc.findme.core.CameraSwitchFeedback
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.MediaCommandFeedback
 import it.xcc.findme.core.MediaCommandPhase
@@ -89,6 +91,7 @@ fun DeviceDetailScreen(
     onBack: () -> Unit,
     onCommand: (CommandType) -> Unit,
     mediaCommandFeedback: Map<MediaStreamKind, MediaCommandFeedback>,
+    cameraSwitchFeedback: CameraSwitchFeedback?,
     fastTrackingActive: Boolean,
     fastHistoryActive: Boolean,
     onFastTrackingChange: (Boolean) -> Unit,
@@ -162,6 +165,7 @@ fun DeviceDetailScreen(
                     heartbeatIntervalSec = heartbeatIntervalSec,
                     onCommand = onCommand,
                     commandFeedback = mediaCommandFeedback[MediaStreamKind.VIDEO],
+                    cameraSwitchFeedback = cameraSwitchFeedback,
                     onTakePhoto = onTakePhoto,
                     trackAvailable = videoTrackAvailable,
                     recordingState = videoRecordingState,
@@ -475,6 +479,7 @@ private fun VideoTab(
     heartbeatIntervalSec: Int,
     onCommand: (CommandType) -> Unit,
     commandFeedback: MediaCommandFeedback?,
+    cameraSwitchFeedback: CameraSwitchFeedback?,
     onTakePhoto: () -> Unit,
     trackAvailable: Boolean,
     recordingState: LocalRecordingState,
@@ -498,20 +503,29 @@ private fun VideoTab(
                 onCommand(if (it) CommandType.START_VIDEO else CommandType.STOP_VIDEO)
             },
             action = {
+                val cameraSwitchActive = cameraSwitchFeedback != null &&
+                    cameraSwitchFeedback.phase != MediaCommandPhase.FAILED
                 IconButton(
-                    enabled = streaming && !recordingState.isActive,
+                    enabled = streaming && !recordingState.isActive && !cameraSwitchActive,
                     onClick = { onCommand(CommandType.SWITCH_CAMERA) },
                 ) {
-                    Icon(
-                        Icons.Outlined.Cameraswitch,
-                        contentDescription = "Cambia fotocamera",
-                        modifier = Modifier.size(30.dp),
-                        tint = if (streaming) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
+                    if (cameraSwitchActive) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(26.dp),
+                            strokeWidth = 3.dp,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Outlined.Cameraswitch,
+                            contentDescription = "Cambia fotocamera",
+                            modifier = Modifier.size(30.dp),
+                            tint = if (streaming) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                 }
                 IconButton(
                     enabled = streaming,
@@ -558,6 +572,13 @@ private fun VideoTab(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
+            if (cameraSwitchFeedback?.phase == MediaCommandPhase.FAILED) {
+                Text(
+                    cameraSwitchFeedback.errorMessage ?: "Cambio fotocamera non confermato.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 }

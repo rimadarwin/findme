@@ -1,3 +1,9 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Schermata di consultazione della cronologia delle posizioni del dispositivo.
+ * @modified 23.09.2026 - MDS | Rimossa la duplicazione grafica del punto selezionato nell'elenco.
+ * @modified 23.09.2026 - MDS | Reso persistente lo stato fullscreen durante il cambio di orientamento.
+ */
 package it.xcc.findme.receiver
 
 import android.app.DatePickerDialog
@@ -32,7 +38,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -59,6 +64,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun LocationHistoryScreen(
     device: MonitoredDevice,
+    fullscreen: Boolean,
     onBack: () -> Unit,
     onFullscreenChange: (Boolean) -> Unit,
     loadRoute: suspend (Instant, Instant) -> List<LocationHistoryPoint>,
@@ -77,7 +83,6 @@ fun LocationHistoryScreen(
     var selectedIndex by remember { mutableIntStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
     var filtersExpanded by remember(device.device.id) { mutableStateOf(false) }
-    var fullscreen by remember(device.device.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun executeQuery() {
@@ -124,14 +129,7 @@ fun LocationHistoryScreen(
     val selectedPoint = route.getOrNull(safeIndex)
 
     fun closeFullscreen() {
-        fullscreen = false
         onFullscreenChange(false)
-    }
-
-    DisposableEffect(fullscreen) {
-        onDispose {
-            if (fullscreen) onFullscreenChange(false)
-        }
     }
 
     if (fullscreen && route.isNotEmpty()) {
@@ -216,10 +214,7 @@ fun LocationHistoryScreen(
                 Box {
                     HistoryMap(route, safeIndex)
                     IconButton(
-                        onClick = {
-                            fullscreen = true
-                            onFullscreenChange(true)
-                        },
+                        onClick = { onFullscreenChange(true) },
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(8.dp)
@@ -273,20 +268,15 @@ fun LocationHistoryScreen(
             Text("Punti registrati", style = MaterialTheme.typography.titleMedium)
         }
         items(listPoints, key = { it.id }) { point ->
-            val isSelected = point.id == selectedPoint?.id
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    },
+                    containerColor = MaterialTheme.colorScheme.surface,
                 ),
             ) {
                 HistoryPointText(
                     point = point,
-                    prefix = if (isSelected) "Punto selezionato" else null,
+                    prefix = null,
                     modifier = Modifier.padding(10.dp),
                 )
             }

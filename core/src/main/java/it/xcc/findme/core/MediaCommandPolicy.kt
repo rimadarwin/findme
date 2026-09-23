@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Modello e policy per il feedback dei comandi multimediali remoti.
+ * @modified 23.09.2026 - MDS | Aggiunto feedback verificato per il cambio fotocamera.
  * @modified 23.09.2026 - MDS | Aggiunta gestione di invio, conferma e timeout dei comandi.
  */
 package it.xcc.findme.core
@@ -30,6 +31,15 @@ data class MediaCommandFeedback(
 data class MediaCommandTarget(
     val stream: MediaStreamKind,
     val enabled: Boolean,
+)
+
+data class CameraSwitchFeedback(
+    val requestId: Long,
+    val deviceId: String,
+    val initialFacing: String,
+    val phase: MediaCommandPhase,
+    val startedElapsedMs: Long,
+    val errorMessage: String? = null,
 )
 
 object MediaCommandPolicy {
@@ -74,4 +84,21 @@ object MediaCommandPolicy {
      */
     fun hasTimedOut(feedback: MediaCommandFeedback, nowElapsedMs: Long): Boolean =
         nowElapsedMs - feedback.startedElapsedMs >= CONFIRMATION_TIMEOUT_MS
+
+    /**
+     * Verifica il cambio effettivo della camera pubblicato dal trasmettitore.
+     */
+    fun isCameraSwitchConfirmed(
+        feedback: CameraSwitchFeedback,
+        status: DeviceStatus?,
+    ): Boolean = status?.cameraStreaming == true &&
+        status.cameraFacing != feedback.initialFacing
+
+    /**
+     * Stabilisce se il cambio fotocamera ha superato il tempo massimo di attesa.
+     */
+    fun hasCameraSwitchTimedOut(
+        feedback: CameraSwitchFeedback,
+        nowElapsedMs: Long,
+    ): Boolean = nowElapsedMs - feedback.startedElapsedMs >= CONFIRMATION_TIMEOUT_MS
 }
