@@ -1,6 +1,12 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Policy per frequenze tracking, storico, percorsi e geofence.
+ * @modified 23.09.2026 - MDS | Normalizzato il lease Supabase con offset UTC.
+ */
 package it.xcc.findme.core
 
 import java.time.Instant
+import java.time.OffsetDateTime
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
@@ -21,14 +27,15 @@ data class EffectiveTrackingConfig(
 object TrackingConfigResolver {
     val defaults = ReceiverTrackingSettings(receiverId = "")
 
+    /**
+     * Risolve le frequenze effettive combinando impostazioni e lease rapido.
+     */
     fun resolve(
         settings: ReceiverTrackingSettings,
         relationship: ReceiverTransmitter?,
         now: Instant = Instant.now(),
     ): EffectiveTrackingConfig {
-        val live = relationship?.liveTrackingUntil
-            ?.let { runCatching { Instant.parse(it).isAfter(now) }.getOrDefault(false) }
-            ?: false
+        val live = isLiveTrackingLeaseActive(relationship?.liveTrackingUntil, now)
         val liveHistory = live && relationship?.liveHistory == true
         val locationInterval = if (live) {
             settings.onlineLocationIntervalSec
@@ -51,6 +58,21 @@ object TrackingConfigResolver {
         )
     }
 
+    /**
+     * Valuta il lease accettando sia il formato `Z` sia l'offset restituito da PostgreSQL.
+     */
+    fun isLiveTrackingLeaseActive(value: String?, now: Instant = Instant.now()): Boolean {
+        if (value.isNullOrBlank()) return false
+        val expiration = runCatching { OffsetDateTime.parse(value).toInstant() }
+            .recoverCatching { Instant.parse(value) }
+            .getOrNull()
+            ?: return false
+        return expiration.isAfter(now)
+    }
+
+    /**
+     * Calcola la distanza minima che distingue un movimento dal rumore GPS.
+     */
     fun movementThresholdMeters(previousAccuracy: Float?, currentAccuracy: Float?): Double {
         val accuracies = listOfNotNull(previousAccuracy, currentAccuracy)
         val averageAccuracy = if (accuracies.isEmpty()) {
@@ -61,6 +83,9 @@ object TrackingConfigResolver {
         return max(10.0, min(50.0, averageAccuracy))
     }
 
+    /**
+     * Calcola la distanza geodetica fra due punti.
+     */
     fun distanceMeters(from: DeviceLocation, to: DeviceLocation): Double {
         val earthRadius = 6_371_000.0
         val lat1 = Math.toRadians(from.latitude)
@@ -72,6 +97,9 @@ object TrackingConfigResolver {
         return earthRadius * 2 * atan2(sqrt(a), sqrt(1 - a))
     }
 
+    /**
+     * Decide se un punto rispetta frequenza e soglia di movimento dello storico.
+     */
     fun shouldPersistHistory(
         previous: DeviceLocation?,
         current: DeviceLocation,
@@ -91,6 +119,9 @@ object TrackingConfigResolver {
 }
 
 object MediaConnectionPolicy {
+    /**
+     * Mantiene LiveKit connesso solo quando almeno uno stream è richiesto.
+     */
     fun shouldConnect(
         cameraStreaming: Boolean,
         microphoneStreaming: Boolean,
@@ -99,6 +130,9 @@ object MediaConnectionPolicy {
 }
 
 object RouteSampler {
+    /**
+     * Riduce un percorso preservando estremi e limite massimo.
+     */
     fun <T> sample(points: List<T>, maxPoints: Int): List<T> {
         val safeMaximum = maxPoints.coerceAtLeast(2)
         if (points.size <= safeMaximum) return points
@@ -119,6 +153,9 @@ data class GeofenceTransition(
 object GeofencePolicy {
     val allowedRadiiM = setOf(50, 100, 250, 500, 1000)
 
+    /**
+     * Valuta lo stato geofence e segnala solo la transizione verso l'esterno.
+     */
     fun evaluate(
         wasOutside: Boolean,
         distanceM: Double,

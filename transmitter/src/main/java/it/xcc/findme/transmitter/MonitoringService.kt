@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Servizio foreground per tracking, comandi remoti e streaming del trasmettitore.
+ * @modified 23.09.2026 - MDS | Aggiunto recovery automatico delle richieste posizione bloccate.
+ */
 package it.xcc.findme.transmitter
 
 import android.Manifest
@@ -12,6 +17,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -28,12 +36,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import io.livekit.android.LiveKit
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
@@ -54,6 +56,7 @@ import it.xcc.findme.core.DeviceRole
 import it.xcc.findme.core.DeviceStatus
 import it.xcc.findme.core.EffectiveTrackingConfig
 import it.xcc.findme.core.FindMeRepository
+import it.xcc.findme.core.LocationRecoveryPolicy
 import it.xcc.findme.core.MediaConnectionPolicy
 import it.xcc.findme.core.TrackingConfigResolver
 import it.xcc.findme.core.TrackingRuntimeState
@@ -88,7 +91,7 @@ class MonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var identity: DeviceIdentity
     private lateinit var repository: FindMeRepository
-    private lateinit var locationClient: FusedLocationProviderClient
+    private lateinit var locationManager: LocationManager
     private lateinit var connectivityManager: ConnectivityManager
     private lateinit var monitoringWakeLock: PowerManager.WakeLock
     private var room: Room? = null
@@ -112,7 +115,19 @@ class MonitoringService : Service() {
     private var trackingState: TrackingRuntimeState? = null
     private var effectiveConfig: EffectiveTrackingConfig =
         TrackingConfigResolver.resolve(TrackingConfigResolver.defaults, null)
+    @Volatile
     private var activeLocationIntervalSec: Int? = null
+    @Volatile
+    private var locationRegistrationActive = false
+    @Volatile
+    private var locationRegistrationPending = false
+    @Volatile
+    private var locationRegistrationStartedElapsedMs = 0L
+    @Volatile
+    private var lastLocationCallbackElapsedMs = 0L
+    @Volatile
+    private var nextLocationRegistrationAttemptElapsedMs = 0L
+    private val registeredLocationProviders = mutableSetOf<String>()
     private var lastHistoryPoint: DeviceLocation? = null
     private var lastHistorySavedAtMillis: Long? = null
     private val recoverySignals = Channel<Throwable>(Channel.CONFLATED)
@@ -140,7 +155,7 @@ class MonitoringService : Service() {
         super.onCreate()
         identity = DeviceIdentity(this)
         repository = FindMeRepository()
-        locationClient = LocationServices.getFusedLocationProviderClient(this)
+        locationManager = getSystemService(LocationManager::class.java)
         connectivityManager = getSystemService(ConnectivityManager::class.java)
         monitoringWakeLock = getSystemService(PowerManager::class.java).newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -174,7 +189,11 @@ class MonitoringService : Service() {
     }
 
     override fun onDestroy() {
-        locationClient.removeLocationUpdates(locationCallback)
+        locationRegistrationActive = false
+        locationRegistrationPending = false
+        activeLocationIntervalSec = null
+        locationManager.removeUpdates(locationListener)
+        registeredLocationProviders.clear()
         runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
         if (::monitoringWakeLock.isInitialized && monitoringWakeLock.isHeld) {
             monitoringWakeLock.release()
@@ -275,11 +294,18 @@ class MonitoringService : Service() {
         }
     }
 
+    /**
+     * Applica gli aggiornamenti tracking ricevuti da Realtime o dal polling REST.
+     */
     private suspend fun observeTrackingState() {
         repository.transmitterTrackingState(identity.id).collect { state ->
             if (state != null) {
                 trackingState = state
                 identity.cacheTrackingState(state)
+                Log.d(
+                    TAG,
+                    "Tracking state received; liveUntil=${state.relationship.liveTrackingUntil}",
+                )
                 applyEffectiveTrackingConfig()
             }
         }
@@ -292,6 +318,10 @@ class MonitoringService : Service() {
         }
     }
 
+    /**
+     * Applica le frequenze correnti e riavvia il provider se il watchdog lo rileva fermo.
+     */
+    @Synchronized
     private fun applyEffectiveTrackingConfig() {
         val state = trackingState
         val updated = if (state == null) {
@@ -310,8 +340,21 @@ class MonitoringService : Service() {
             )
         }
         effectiveConfig = updated
-        if (activeLocationIntervalSec != updated.locationIntervalSec) {
-            startLocationUpdates(updated)
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        val intervalChanged = activeLocationIntervalSec != updated.locationIntervalSec
+        val watchdogRestart = LocationRecoveryPolicy.shouldRestart(
+            registrationActive = locationRegistrationActive,
+            registrationPending = locationRegistrationPending,
+            lastCallbackElapsedMs = lastLocationCallbackElapsedMs,
+            registrationStartedElapsedMs = locationRegistrationStartedElapsedMs,
+            nowElapsedMs = nowElapsedMs,
+            locationIntervalSec = updated.locationIntervalSec,
+        )
+        if (nowElapsedMs >= nextLocationRegistrationAttemptElapsedMs &&
+            (intervalChanged || watchdogRestart)
+        ) {
+            val reason = if (intervalChanged) "tracking interval changed" else "location watchdog"
+            startLocationUpdates(updated, reason)
         }
     }
 
@@ -773,34 +816,51 @@ class MonitoringService : Service() {
             intent.getParcelableExtra(EXTRA_PROJECTION_RESULT_DATA)
         }
 
-    private val locationCallback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            val location = result.lastLocation ?: return
-            scope.launch {
-                val point = DeviceLocation(
-                    deviceId = identity.id,
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    accuracy = location.accuracy,
-                    recordedAt = Instant.ofEpochMilli(location.time).toString(),
-                )
-                runCatching {
-                    withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
-                        repository.updateCurrentLocation(point)
-                    }
-                }.onFailure {
-                    Log.e(TAG, "Location upload failed", it)
-                    recoverySignals.trySend(it)
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            processLocation(location)
+        }
+
+        override fun onProviderDisabled(provider: String) {
+            registeredLocationProviders -= provider
+            locationRegistrationActive = registeredLocationProviders.isNotEmpty()
+            Log.w(TAG, "Location provider disabled: $provider")
+        }
+    }
+
+    /**
+     * Pubblica una posizione ricevuta dal provider Android e valuta lo storico.
+     */
+    private fun processLocation(location: Location) {
+        lastLocationCallbackElapsedMs = SystemClock.elapsedRealtime()
+        Log.d(
+            TAG,
+            "Location callback received; provider=${location.provider} accuracy=${location.accuracy}m",
+        )
+        scope.launch {
+            val point = DeviceLocation(
+                deviceId = identity.id,
+                latitude = location.latitude,
+                longitude = location.longitude,
+                accuracy = location.accuracy,
+                recordedAt = Instant.ofEpochMilli(location.time).toString(),
+            )
+            runCatching {
+                withTimeout(ConnectionRecoveryPolicy.REQUEST_TIMEOUT_MS) {
+                    repository.updateCurrentLocation(point)
                 }
-                if (trackingState?.relationship?.geofenceEnabled == true) {
-                    runCatching {
-                        repository.checkGeofence(point)
-                    }.onFailure {
-                        Log.e(TAG, "Geofence evaluation failed", it)
-                    }
-                }
-                persistHistoryIfNeeded(point)
+            }.onFailure {
+                Log.e(TAG, "Location upload failed", it)
+                recoverySignals.trySend(it)
             }
+            if (trackingState?.relationship?.geofenceEnabled == true) {
+                runCatching {
+                    repository.checkGeofence(point)
+                }.onFailure {
+                    Log.e(TAG, "Geofence evaluation failed", it)
+                }
+            }
+            persistHistoryIfNeeded(point)
         }
     }
 
@@ -827,20 +887,70 @@ class MonitoringService : Service() {
         }
     }
 
+    /**
+     * Registra una nuova richiesta Fused Location e conserva lo stato solo dopo il successo.
+     */
     @Suppress("MissingPermission")
-    private fun startLocationUpdates(config: EffectiveTrackingConfig) {
-        locationClient.removeLocationUpdates(locationCallback)
+    private fun startLocationUpdates(config: EffectiveTrackingConfig, reason: String) {
+        if (locationRegistrationPending) return
+        locationRegistrationPending = true
+        locationRegistrationActive = false
+        activeLocationIntervalSec = null
+        locationRegistrationStartedElapsedMs = SystemClock.elapsedRealtime()
+        locationManager.removeUpdates(locationListener)
+        registeredLocationProviders.clear()
         val intervalMillis = config.locationIntervalSec * 1_000L
-        val priority = if (config.liveTracking) {
-            Priority.PRIORITY_HIGH_ACCURACY
-        } else {
-            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        val enabledProviders = listOf(
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
+        ).filter(locationManager::isProviderEnabled)
+        Log.i(
+            TAG,
+            "Registering location updates; interval=${config.locationIntervalSec}s " +
+                "providers=$enabledProviders reason=$reason",
+        )
+        enabledProviders.forEach { provider ->
+            runCatching {
+                locationManager.requestLocationUpdates(
+                    provider,
+                    intervalMillis,
+                    0f,
+                    locationListener,
+                    Looper.getMainLooper(),
+                )
+            }.onSuccess {
+                registeredLocationProviders += provider
+            }.onFailure { error ->
+                Log.e(TAG, "Location provider registration failed: $provider", error)
+            }
         }
-        val request = LocationRequest.Builder(priority, intervalMillis)
-            .setMinUpdateIntervalMillis(intervalMillis / 2)
-            .build()
-        locationClient.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
+        locationRegistrationPending = false
+        if (registeredLocationProviders.isEmpty()) {
+            onLocationRegistrationFailure(
+                IllegalStateException("No Android location provider available"),
+            )
+            return
+        }
+        locationRegistrationActive = true
         activeLocationIntervalSec = config.locationIntervalSec
+        nextLocationRegistrationAttemptElapsedMs = 0L
+        Log.i(
+            TAG,
+            "Location updates registered; providers=$registeredLocationProviders " +
+                "interval=${config.locationIntervalSec}s",
+        )
+    }
+
+    /**
+     * Registra il fallimento e programma un nuovo tentativo senza creare un loop aggressivo.
+     */
+    private fun onLocationRegistrationFailure(error: Throwable) {
+        locationRegistrationPending = false
+        locationRegistrationActive = false
+        activeLocationIntervalSec = null
+        nextLocationRegistrationAttemptElapsedMs =
+            SystemClock.elapsedRealtime() + LOCATION_REGISTRATION_RETRY_MS
+        Log.e(TAG, "Location updates registration failed; retry scheduled", error)
     }
 
     private fun hasRequiredPermissions(): Boolean =
@@ -915,6 +1025,7 @@ class MonitoringService : Service() {
         private const val NOTIFICATION_ID = 1101
         private const val WAKE_LOCK_TAG = "FindMe:Monitoring"
         private const val TRACKING_EVALUATION_INTERVAL_MS = 1_000L
+        private const val LOCATION_REGISTRATION_RETRY_MS = 15_000L
         private const val MEDIA_WATCHDOG_INTERVAL_MS = 5_000L
         private const val HEALTH_CHECK_INTERVAL_MS = 15 * 60 * 1_000L
         private const val SCREEN_TRACK_NAME = "findme-screen"

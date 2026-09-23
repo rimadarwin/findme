@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Repository condiviso per Supabase, tracking, comandi e contenuti multimediali.
+ * @modified 23.09.2026 - MDS | Aggiunto polling di recovery dello stato tracking.
+ */
 @file:OptIn(
     io.github.jan.supabase.annotations.SupabaseExperimental::class,
     kotlinx.coroutines.ExperimentalCoroutinesApi::class,
@@ -178,7 +183,42 @@ class FindMeRepository(
         }
     }
 
-    fun transmitterTrackingState(transmitterId: String): Flow<TrackingRuntimeState?> =
+    /**
+     * Osserva configurazione e lease tracking usando Realtime con polling REST di sicurezza.
+     */
+    fun transmitterTrackingState(
+        transmitterId: String,
+    ): Flow<TrackingRuntimeState?> = channelFlow {
+        suspend fun publishTrackingState(source: String) {
+            val state = fetchTransmitterTrackingState(transmitterId)
+            Log.d(TAG, "Tracking state check source=$source available=${state != null}")
+            send(state)
+        }
+
+        publishTrackingState("initial")
+        val realtimeJob = launch {
+            runCatching {
+                realtimeTransmitterTrackingState(transmitterId).collect(::send)
+            }.onFailure {
+                Log.e(TAG, "Tracking Realtime unavailable; REST polling remains active", it)
+            }
+        }
+        try {
+            while (isActive) {
+                delay(TRACKING_STATE_POLL_INTERVAL_MS)
+                publishTrackingState("poll")
+            }
+        } finally {
+            realtimeJob.cancel()
+        }
+    }.distinctUntilChanged()
+
+    /**
+     * Costruisce il flusso Realtime originario per relazione e impostazioni ricevitore.
+     */
+    private fun realtimeTransmitterTrackingState(
+        transmitterId: String,
+    ): Flow<TrackingRuntimeState?> =
         client.from("receiver_transmitters")
             .selectAsFlow(ReceiverTransmitter::transmitterId)
             .map { rows -> rows.firstOrNull { it.transmitterId == transmitterId } }
@@ -191,6 +231,24 @@ class FindMeRepository(
                     }
                 }
             }
+
+    /**
+     * Recupera via REST lo stato tracking corrente per sopravvivere a websocket bloccati.
+     */
+    private suspend fun fetchTransmitterTrackingState(
+        transmitterId: String,
+    ): TrackingRuntimeState? {
+        ensureAuthenticated()
+        val relationship = client.from("receiver_transmitters").select {
+            filter { eq("transmitter_id", transmitterId) }
+            limit(1)
+        }.decodeList<ReceiverTransmitter>().firstOrNull() ?: return null
+        val settings = client.from("receivers").select {
+            filter { eq("device_id", relationship.receiverId) }
+            limit(1)
+        }.decodeList<ReceiverTrackingSettings>().firstOrNull() ?: return null
+        return TrackingRuntimeState(settings, relationship)
+    }
 
     suspend fun setLiveTracking(
         receiverId: String,
@@ -505,6 +563,7 @@ class FindMeRepository(
     companion object {
         private const val TAG = "FindMeRepository"
         private const val VOICE_MESSAGES_BUCKET = "voice-messages"
+        private const val TRACKING_STATE_POLL_INTERVAL_MS = 10_000L
         // A single client and mutex prevent concurrent refresh-token rotation in one app process.
         private val processAuthenticationMutex = Mutex()
         private var lastSessionRefreshAtElapsedMs = 0L
