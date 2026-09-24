@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Genera token LiveKit usando il provider condiviso o quello dedicato al ricevitore.
+ * @modified 24.09.2026 - MDS | Aggiunta risoluzione multi-tenant con fallback condiviso.
+ */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { AccessToken } from "npm:livekit-server-sdk@2";
 
@@ -6,6 +11,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+type LiveKitProvider = {
+  url: string;
+  apiKey: string;
+  apiSecret: string;
+};
+
+// Verifica l'identità, risolve il ricevitore autorizzato e genera un token limitato alla sua stanza.
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -40,10 +52,19 @@ Deno.serve(async (request) => {
     if (error || !device) {
       return json({ error: "Device not found" }, 404);
     }
+    let receiverId: string;
     if (mode === "publish") {
       if (device.role !== "transmitter" || device.owner_id !== user.id) {
         return json({ error: "Only the transmitter owner can publish" }, 403);
       }
+      const { data: relation } = await admin
+        .from("receiver_transmitters")
+        .select("receiver_id")
+        .eq("transmitter_id", deviceId)
+        .limit(1)
+        .maybeSingle();
+      if (!relation) return json({ error: "Device not paired" }, 403);
+      receiverId = relation.receiver_id;
     } else {
       const { data: ownedReceivers } = await admin
         .from("receivers")
@@ -61,12 +82,14 @@ Deno.serve(async (request) => {
         .limit(1)
         .maybeSingle();
       if (!relation) return json({ error: "Device not paired" }, 403);
+      receiverId = relation.receiver_id;
     }
 
-    const room = `device-${deviceId}`;
+    const provider = await resolveLiveKitProvider(admin, receiverId);
+    const room = `receiver-${receiverId}-device-${deviceId}`;
     const token = new AccessToken(
-      requiredEnv("LIVEKIT_API_KEY"),
-      requiredEnv("LIVEKIT_API_SECRET"),
+      provider.apiKey,
+      provider.apiSecret,
       {
         identity: `${mode}-${user.id}-${crypto.randomUUID()}`,
         ttl: "10m",
@@ -83,7 +106,7 @@ Deno.serve(async (request) => {
     return json({
       token: await token.toJwt(),
       room,
-      url: requiredEnv("LIVEKIT_URL"),
+      url: provider.url,
     });
   } catch (error) {
     console.error(error);
@@ -91,12 +114,47 @@ Deno.serve(async (request) => {
   }
 });
 
+/**
+ * Carica l'override del ricevitore oppure usa il provider LiveKit condiviso.
+ */
+async function resolveLiveKitProvider(
+  admin: ReturnType<typeof createClient>,
+  receiverId: string,
+): Promise<LiveKitProvider> {
+  const { data: config, error } = await admin
+    .from("receiver_service_configs")
+    .select(
+      "livekit_url, livekit_api_key_secret_name, livekit_api_secret_secret_name",
+    )
+    .eq("receiver_id", receiverId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!config) {
+    return {
+      url: requiredEnv("LIVEKIT_URL"),
+      apiKey: requiredEnv("LIVEKIT_API_KEY"),
+      apiSecret: requiredEnv("LIVEKIT_API_SECRET"),
+    };
+  }
+  return {
+    url: config.livekit_url,
+    apiKey: requiredEnv(config.livekit_api_key_secret_name),
+    apiSecret: requiredEnv(config.livekit_api_secret_secret_name),
+  };
+}
+
+/**
+ * Restituisce un secret obbligatorio senza esporne il valore nei log.
+ */
 function requiredEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing ${name}`);
   return value;
 }
 
+/**
+ * Crea una risposta JSON uniforme con intestazioni CORS.
+ */
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

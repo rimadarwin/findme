@@ -1,3 +1,10 @@
+<!--
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Guida alla configurazione dei servizi esterni usati da FindMe.
+ * @modified 24.09.2026 - MDS | Documentata la configurazione LiveKit multi-tenant.
+ */
+-->
 # Configurazione dei sistemi esterni
 
 ## 1. Supabase
@@ -30,7 +37,9 @@ comandi usato come fallback quando Supabase Realtime non risponde. Le migrazioni
 `202609200003_voice_messages_rpc.sql`, con la correzione isolata
 `202609200004_voice_storage_policy_fix.sql`, creano il bucket privato
 `voice-messages`, le policy RLS e il comando atomico per consegnare messaggi
-vocali. Non rendere pubblico il bucket.
+vocali. La migrazione `202609240001_receiver_service_configs.sql` abilita
+override LiveKit per ricevitore senza memorizzare credenziali nel database. Non
+rendere pubblico il bucket.
 
 ### Identità automatica
 
@@ -60,6 +69,50 @@ Edge Functions ospitate. Le funzioni verificano il JWT anonimo, la proprietà de
 dispositivo e la relazione di pairing prima di associare dispositivi o emettere
 un token LiveKit.
 
+#### LiveKit dedicato per un ricevitore
+
+Senza una riga in `receiver_service_configs`, il ricevitore usa il progetto
+LiveKit condiviso configurato sopra. Per assegnargli un progetto dedicato,
+creare due Edge Secrets con nomi univoci e non inserirne mai i valori in SQL:
+
+```powershell
+npx supabase secrets set `
+  CLIENTE_ACME_LIVEKIT_API_KEY=... `
+  CLIENTE_ACME_LIVEKIT_API_SECRET=...
+```
+
+Dal SQL Editor, usando un ruolo amministrativo, salvare URL e soli nomi dei
+secret:
+
+```sql
+insert into public.receiver_service_configs (
+  receiver_id,
+  livekit_url,
+  livekit_api_key_secret_name,
+  livekit_api_secret_secret_name
+) values (
+  'UUID_DEL_RICEVITORE',
+  'wss://CLIENTE_ACME.livekit.cloud',
+  'CLIENTE_ACME_LIVEKIT_API_KEY',
+  'CLIENTE_ACME_LIVEKIT_API_SECRET'
+)
+on conflict (receiver_id) do update
+set livekit_url = excluded.livekit_url,
+    livekit_api_key_secret_name = excluded.livekit_api_key_secret_name,
+    livekit_api_secret_secret_name = excluded.livekit_api_secret_secret_name,
+    updated_at = now();
+```
+
+La tabella non è accessibile ai client anonimi o autenticati. La Edge Function
+risolve il ricevitore dalla relazione di pairing e legge dinamicamente i secret.
+Per ruotare le credenziali mantenendo gli stessi nomi, aggiornare soltanto gli
+Edge Secrets. Per tornare al provider condiviso:
+
+```sql
+delete from public.receiver_service_configs
+where receiver_id = 'UUID_DEL_RICEVITORE';
+```
+
 ### Domanda di accesso
 
 Ogni ricevitore può avere `access_question` e `access_answer_hash`. La risposta
@@ -88,7 +141,9 @@ select cron.schedule(
 4. Salvare key e secret nei Supabase secrets come indicato sopra.
 
 Non occorre creare stanze manualmente: vengono create alla prima connessione con
-nome `device-<uuid>`.
+nome `receiver-<receiver_uuid>-device-<device_uuid>`. Firebase resta condiviso:
+i token FCM sono già isolati per `receiver_id` e non usano la configurazione
+LiveKit.
 
 ## 3. Mappe gratuite
 

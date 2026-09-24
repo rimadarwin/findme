@@ -1,3 +1,10 @@
+<!--
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Analisi tecnica e guida di riproduzione dell'architettura FindMe.
+ * @modified 24.09.2026 - MDS | Documentata la risoluzione multi-tenant dei provider LiveKit.
+ */
+-->
 # FindMe — Analisi tecnica e guida di riproduzione
 
 ## 1. Obiettivo e criterio di fedeltà
@@ -19,7 +26,7 @@ flowchart LR
     RX[App Android ricevitore]
     SB[(Supabase Auth/Postgres/Realtime/Storage)]
     EF[Supabase Edge Functions]
-    LK[LiveKit SFU]
+    LK[LiveKit SFU condiviso o dedicato]
     FCM[Firebase Cloud Messaging]
     MAP[OpenFreeMap]
 
@@ -139,10 +146,13 @@ Segreti server-side:
 - `LIVEKIT_URL`;
 - `LIVEKIT_API_KEY`;
 - `LIVEKIT_API_SECRET`;
+- coppie opzionali di Edge Secrets LiveKit dedicate ai singoli ricevitori;
 - `FIREBASE_SERVICE_ACCOUNT_JSON`.
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` e
 `SUPABASE_SERVICE_ROLE_KEY` sono forniti all’ambiente Edge Functions.
+`receiver_service_configs` conserva soltanto URL e nomi dei secret dedicati:
+API key e secret reali non devono mai essere scritti nel database.
 
 ## 6. Dipendenze per modulo
 
@@ -634,7 +644,18 @@ applicati, impedendo replay infinito.
 ## 16. LiveKit e media on-demand
 
 Il publisher richiede un token `publish`; il receiver un token `subscribe`.
-La stanza esiste logicamente per device.
+La Edge Function ricava prima il ricevitore autorizzato dalla relazione
+`receiver_transmitters`. Se esiste una riga in `receiver_service_configs`,
+carica gli Edge Secrets indicati dalla riga e usa il relativo URL LiveKit;
+altrimenti usa `LIVEKIT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET`
+condivisi. La stanza è isolata con il nome
+`receiver-<receiver_uuid>-device-<device_uuid>`.
+
+Il contratto Android resta indipendente dal provider: `livekit-token` restituisce
+sempre `url`, `room` e `token`. La configurazione dedicata è amministrativa,
+protetta da RLS e non leggibile dai client. Firebase resta invece centrale:
+`receiver_push_tokens.receiver_id` seleziona i destinatari senza introdurre
+service account diversi per tenant.
 
 `MediaConnectionPolicy.shouldConnect` è vero se almeno un media è richiesto.
 Quando falso:
