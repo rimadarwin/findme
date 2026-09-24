@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Adatta i frame della MediaProjection al capturer video di LiveKit.
+ * @modified 24.09.2026 - MDS | Condivisa la copia I420 con la cache del keepalive.
+ */
 package it.xcc.findme.transmitter.screen
 
 import android.content.Context
@@ -22,16 +27,18 @@ class ProjectionVideoCapturer(
             return@VideoSink
         }
         lastFrameTimestampNs = frame.timestampNs
-        // The projection owns an independent EGL context, so forward an I420 copy.
+        // La proiezione usa un contesto EGL indipendente: LiveKit riceve una copia I420 sicura.
         val i420Buffer = frame.buffer.toI420()
         val safeFrame = VideoFrame(i420Buffer, frame.rotation, frame.timestampNs)
         try {
+            controller.cachePublishedFrame(safeFrame)
             observer?.onFrameCaptured(safeFrame)
         } finally {
             safeFrame.release()
         }
     }
 
+    /** Registra l'observer fornito da LiveKit per i frame catturati. */
     override fun initialize(
         surfaceTextureHelper: SurfaceTextureHelper?,
         applicationContext: Context?,
@@ -40,6 +47,7 @@ class ProjectionVideoCapturer(
         observer = capturerObserver
     }
 
+    /** Avvia l'inoltro dei frame applicando la frequenza massima richiesta. */
     override fun startCapture(width: Int, height: Int, framerate: Int) {
         check(controller.isReady) { "Screen capture authorization is not active" }
         if (started) return
@@ -50,6 +58,7 @@ class ProjectionVideoCapturer(
         observer?.onCapturerStarted(true)
     }
 
+    /** Interrompe l'inoltro e rimuove il capturer dai destinatari della proiezione. */
     override fun stopCapture() {
         if (!started) return
         controller.removeSink(sink)
@@ -57,15 +66,18 @@ class ProjectionVideoCapturer(
         observer?.onCapturerStopped()
     }
 
+    /** Ridimensiona il display virtuale dopo un cambio di formato. */
     override fun changeCaptureFormat(width: Int, height: Int, framerate: Int) {
         controller.resize()
     }
 
+    /** Rilascia il capturer e il relativo observer. */
     override fun dispose() {
         stopCapture()
         observer = null
     }
 
+    /** Indica a WebRTC che la sorgente rappresenta la condivisione dello schermo. */
     override fun isScreencast(): Boolean = true
 
     companion object {
