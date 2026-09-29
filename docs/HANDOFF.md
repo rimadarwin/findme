@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Stato tecnico e indicazioni di passaggio del progetto FindMe.
+ * @modified 29.09.2026 - MDS | Documentata l'implementazione dell'alert area persistente.
  * @modified 23.09.2026 - MDS | Documentata la persistenza del tracking rapido al blocco.
  * @modified 23.09.2026 - MDS | Documentato il feedback dei comandi multimediali.
  */
@@ -60,10 +61,12 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - mappa Posizione immersiva in orientamento landscape con pannello laterale;
 - storico immersivo landscape con timeline progressiva e dettaglio del solo
   punto selezionato, senza elenco completo nel pannello laterale;
-- alert area circolare con raggi predefiniti, centro fotografato
-  all’attivazione, overlay MapLibre e transizioni uscita/rientro idempotenti;
-- notifiche FCM al ricevitore anche ad app chiusa, con token protetti da RLS e
-  invio tramite Edge Function.
+- alert area circolare one-shot con raggi predefiniti, centro fotografato
+  all’attivazione e overlay MapLibre; la prima uscita spegne l’avviso e abilita
+  tracking e storico rapidi persistenti fino allo stop manuale;
+- notifiche FCM al ricevitore anche ad app chiusa, con evento persistito
+  atomicamente, token protetti da RLS, conferma Edge Function e retry
+  15/30/60/120/300 secondi fino alla consegna.
 - acquisizione di un fotogramma dal video remoto e salvataggio nella galleria
   del ricevitore in `Pictures/FindMe`.
 - registrazione locale indipendente di video H.264/MP4 in `Movies/FindMe` e
@@ -104,7 +107,10 @@ Le migrazioni `202609160005_media_state.sql`,
 `202609200002_voice_messages_schema.sql` e
 `202609200003_voice_messages_rpc.sql` e
 `202609200004_voice_storage_policy_fix.sql` e
-`202609230001_fast_command_recovery.sql` devono essere applicate prima di
+`202609230001_fast_command_recovery.sql`,
+`202609230002_update_receiver_access_question.sql`,
+`202609240001_receiver_service_configs.sql` e
+`202609290001_geofence_exit_tracking.sql` devono essere applicate prima di
 installare le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano
@@ -115,6 +121,12 @@ precedentemente attivo rimane erroneamente visualizzato come ON.
 Nota di affidabilità: “online” dimostra che gli heartbeat REST funzionano, ma
 non garantisce che il WebSocket Realtime dei comandi sia vivo. Per questo il
 polling comandi deve restare indipendente dalla sottoscrizione Realtime.
+
+Nota FCM: il service account va salvato come
+`FIREBASE_SERVICE_ACCOUNT_BASE64`; passare JSON grezzo da PowerShell può
+rimuovere le virgolette e rendere il secret non decodificabile. Il flusso
+uscita→tracking persistente→retry→notifica è stato validato sui due telefoni
+reali il 29.09.2026, inclusi chiusura del ricevitore e stop manuale finale.
 
 I messaggi vocali non usano LiveKit: il receiver carica il file nel bucket
 privato `voice-messages`, quindi la RPC crea nello stesso commit il record e il

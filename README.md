@@ -1,3 +1,10 @@
+<!--
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Presentazione, build e uso essenziale del progetto FindMe.
+ * @modified 29.09.2026 - MDS | Documentato l'avviso area one-shot con tracking persistente.
+ */
+-->
 # FindMe
 
 Sistema Android composto da due app:
@@ -71,7 +78,9 @@ ciascuno stream, evitando rapide sequenze camera ON/OFF durante il recupero.
 Nel tab **Posizione**, l’occhio abilita temporaneamente il tracking rapido.
 **Storico rapido** applica la stessa frequenza anche alla registrazione dello
 storico. La sessione scade automaticamente dopo 90 secondi e viene rinnovata
-solo mentre la vista è attiva.
+solo mentre la vista è attiva. L’uscita dall’area sorvegliata attiva invece
+entrambi i controlli in modo persistente: restano ON finché vengono disattivati
+manualmente.
 
 Da **Configurazioni generali** è possibile cancellare definitivamente lo
 storico scegliendo uno o più trasmettitori associati e confermando
@@ -117,7 +126,8 @@ Dal tab Posizione è inoltre possibile:
 - attivare un avviso area centrato sulla posizione corrente, con raggio
   50/100/250/500/1000 metri;
 - ricevere una notifica FCM quando il trasmettitore passa dall’interno
-  all’esterno dell’area. L’avviso si riarma dopo il rientro.
+  all’esterno dell’area. Alla prima uscita l’avviso termina e abilita
+  automaticamente aggiornamento rapido e storico rapido persistenti.
 
 Non servono email o password. Il pairing iniziale usa un codice univoco di 10
 caratteri fornito durante il provisioning; il nome del dispositivo rimane

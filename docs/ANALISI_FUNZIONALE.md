@@ -1,3 +1,10 @@
+<!--
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Specifica funzionale completa del prodotto FindMe.
+ * @modified 29.09.2026 - MDS | Descritto l'avviso area one-shot con controlli rapidi persistenti.
+ */
+-->
 # FindMe — Analisi funzionale completa
 
 ## 1. Scopo del documento
@@ -342,12 +349,15 @@ Sotto la mappa sono presenti:
 - quando viene acceso fotografa la posizione corrente come centro;
 - usa il raggio configurato nelle configurazioni generali;
 - richiede posizione disponibile e trasmettitore online;
-- quando attivo mostra raggio e stato `dentro l’area`/`fuori area`;
+- quando attivo mostra raggio e stato `dentro l’area`;
 - mostra le coordinate del centro;
 - allo spegnimento elimina centro, raggio e stato esterno.
 
-La notifica scatta soltanto sulla transizione interno→esterno. Dopo il rientro
-la geofence viene riarmata.
+La prima uscita viene gestita atomicamente: l’avviso area si spegne,
+**Aggiornamento rapido** e **Storico rapido** si accendono in modo persistente
+e viene accodata una notifica. I due controlli restano attivi, anche dopo
+blocco o chiusura del ricevitore, finché l’utente li disattiva manualmente.
+Un errore FCM non annulla l’evento: la consegna viene ritentata con backoff.
 
 #### Storico
 
@@ -804,8 +814,9 @@ volume e microfono.
 ### Scenario H — geofence
 
 L’attivazione deve fissare il centro corrente; la prima uscita deve produrre
-una notifica, gli aggiornamenti successivi fuori area no, il rientro deve
-riarmare l’avviso.
+una notifica, spegnere l’avviso e attivare tracking e storico rapidi
+persistenti. Gli aggiornamenti successivi non devono creare nuovi eventi; un
+fallimento FCM deve restare pendente fino alla consegna.
 
 ### Scenario I — blocco schermo ricevitore
 

@@ -2,6 +2,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Analisi tecnica e guida di riproduzione dell'architettura FindMe.
+ * @modified 29.09.2026 - MDS | Documentati transazione di uscita area e retry FCM persistente.
  * @modified 24.09.2026 - MDS | Documentata la risoluzione multi-tenant dei provider LiveKit.
  */
 -->
@@ -147,7 +148,7 @@ Segreti server-side:
 - `LIVEKIT_API_KEY`;
 - `LIVEKIT_API_SECRET`;
 - coppie opzionali di Edge Secrets LiveKit dedicate ai singoli ricevitori;
-- `FIREBASE_SERVICE_ACCOUNT_JSON`.
+- `FIREBASE_SERVICE_ACCOUNT_BASE64`.
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` e
 `SUPABASE_SERVICE_ROLE_KEY` sono forniti all’ambiente Edge Functions.
@@ -324,8 +325,11 @@ Campi finali:
 - `paired_at`;
 - `alias`;
 - `live_tracking_until`;
+- `live_tracking_persistent`;
 - `live_history`;
-- configurazione/stato geofence.
+- configurazione/stato geofence;
+- payload, tentativi, prossima esecuzione ed errore della notifica geofence
+  eventualmente pendente.
 
 Un indice unico su `transmitter_id` impone un solo ricevitore per
 trasmettitore.
@@ -417,6 +421,11 @@ gestione soltanto al proprietario via RLS.
 13. `202609200002_voice_messages_schema.sql`: enum, tabella, bucket e policy.
 14. `202609200003_voice_messages_rpc.sql`: creazione atomica record+comando.
 15. `202609200004_voice_storage_policy_fix.sql`: ricrea helper/policy Storage.
+16. `202609230001_fast_command_recovery.sql`: polling comandi a 5 secondi.
+17. `202609230002_update_receiver_access_question.sql`: testo della domanda.
+18. `202609240001_receiver_service_configs.sql`: servizi per ricevitore.
+19. `202609290001_geofence_exit_tracking.sql`: uscita area atomica, tracking
+    persistente e coda retry FCM.
 
 Avvertenza PostgreSQL: l’uso di un nuovo valore enum nella stessa transazione
 che lo aggiunge può fallire. Mantenere separate le migrazioni schema e RPC,
@@ -443,13 +452,14 @@ RPC:
 
 - `get_location_route`: campiona fino a 1.500 punti, preservando estremi;
 - `evaluate_geofence`: calcola distanza Haversine sotto lock e rende
-  idempotente la transizione;
+  idempotente la transizione, commuta i controlli rapidi e assegna il retry
+  FCM dovuto;
 - `delete_receiver_location_history`: verifica ownership e appartenenza di
   ogni UUID prima del delete;
 - `create_voice_message`: verifica ricevitore, relazione e oggetto Storage,
   poi crea record e comando nella stessa transazione;
 - `delete_expired_findme_data`: 30 giorni storico, 7 giorni comandi e reset
-  lease scadute.
+  lease scadute senza alterare il tracking persistente.
 
 Programmare con `pg_cron` una chiamata giornaliera alla retention, per esempio
 alle 03:15.
@@ -525,12 +535,15 @@ Il trasmettitore invoca la funzione con posizione corrente. La funzione:
 
 1. autentica;
 2. chiama `evaluate_geofence`;
-3. termina senza invio se non è una nuova uscita;
+3. termina senza invio se non esiste un evento nuovo o un retry scaduto;
 4. recupera alias/nome e token;
 5. ottiene OAuth2 dal service account;
 6. invia FCM HTTP v1 ad alta priorità;
 7. elimina token non registrati;
-8. se nessun invio riesce, resetta `geofence_is_outside` per consentire retry.
+8. in caso di almeno una consegna confermata elimina il payload pendente;
+9. in caso di errore conserva diagnostica sanitizzata e lascia il retry
+   pendente. La RPC applica backoff 15/30/60/120/300 secondi e serializza le
+   assegnazioni con `FOR UPDATE`.
 
 Il payload dati contiene tipo, UUID, nome, distanza e raggio. Verificare con la
 versione FCM in uso che l’identificativo salvato e il campo destinatario HTTP
@@ -580,7 +593,7 @@ Prima viene rispettato l’intervallo temporale. Poi:
 Ogni punto:
 
 1. upsert posizione corrente con timeout;
-2. se geofence attiva, Edge Function;
+2. se geofence attiva o notifica pendente, Edge Function;
 3. valuta salvataggio storico sotto mutex.
 
 ## 14. Foreground service trasmettitore
@@ -864,11 +877,16 @@ In errore: stato failed e messaggio generico massimo 300 caratteri.
 ## 22. Geofence e FCM
 
 Il centro e il raggio sono salvati nella relazione. Il trasmettitore chiama
-`geofence-alert` soltanto se la relazione cache/realtime indica geofence ON.
+`geofence-alert` se la geofence è ON oppure se una notifica è ancora pendente.
+Questi flag sono anche nella cache locale, così un riavvio offline non perde il
+retry.
 
 La distanza è Haversine con raggio terrestre 6.371.000 m. `evaluate_geofence`
-blocca la relazione `FOR UPDATE`, aggiorna lo stato soltanto su cambio e
-notifica esclusivamente `outside && !previousOutside`.
+blocca la relazione `FOR UPDATE`. Alla prima uscita spegne la geofence, azzera
+centro e raggio, imposta `live_tracking_persistent=true`, abilita
+`live_history` e crea il payload FCM nello stesso commit. Le invocazioni
+successive assegnano un solo retry scaduto per volta; la Edge Function rimuove
+il pending soltanto dopo una risposta FCM positiva.
 
 Setup Firebase:
 
@@ -877,7 +895,7 @@ Setup Firebase:
 3. copiare `google-services.json` in `receiver/`;
 4. abilitare FCM API;
 5. generare service account JSON;
-6. comprimerlo e impostare `FIREBASE_SERVICE_ACCOUNT_JSON`;
+6. codificarlo in Base64 e impostare `FIREBASE_SERVICE_ACCOUNT_BASE64`;
 7. deploy `geofence-alert`;
 8. rebuild/reinstall receiver;
 9. aprire app e concedere notifiche.

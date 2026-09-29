@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Schermata di dettaglio del trasmettitore e controlli remoti.
+ * @modified 29.09.2026 - MDS | Spiegato l'effetto persistente dell'uscita area sui controlli rapidi.
  * @modified 23.09.2026 - MDS | Aggiunto indicatore durante il cambio fotocamera.
  * @modified 23.09.2026 - MDS | Chiarita disponibilità e persistenza del tracking rapido.
  * @modified 23.09.2026 - MDS | Aggiunto feedback immediato e verificato agli switch multimediali.
@@ -369,13 +370,15 @@ internal fun PositionControls(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TrackingControl(
             title = "Aggiornamento rapido",
-            description = if (deviceOnline) {
+            description = if (geofence?.liveTrackingPersistent == true) {
+                "Attivato dall’avviso area: resta attivo finché lo disattivi manualmente."
+            } else if (deviceOnline) {
                 "Resta attivo col telefono bloccato, finché lo disattivi o chiudi il dettaglio."
             } else {
                 "Disponibile quando il trasmettitore torna online."
             },
             checked = fastTrackingActive,
-            enabled = deviceOnline,
+            enabled = fastTrackingActive || deviceOnline,
             icon = {
                 Icon(
                     if (fastTrackingActive) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
@@ -397,10 +400,11 @@ internal fun PositionControls(
         TrackingControl(
             title = "Avviso uscita area",
             description = if (geofenceActive) {
-                val state = if (geofence?.geofenceIsOutside == true) "fuori area" else "dentro l’area"
-                "Raggio ${geofence?.geofenceRadiusM ?: 0} m • $state"
+                "Raggio ${geofence?.geofenceRadiusM ?: 0} m • dentro l’area"
+            } else if (geofence?.liveTrackingPersistent == true) {
+                "Uscita rilevata: avviso concluso e controlli rapidi attivati."
             } else {
-                "Usa la posizione attuale come centro dell’area."
+                "Usa la posizione attuale come centro; all’uscita attiva entrambi i controlli rapidi."
             },
             checked = geofenceActive,
             enabled = geofenceActive ||

@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Policy per frequenze tracking, storico, percorsi e geofence.
+ * @modified 29.09.2026 - MDS | Considerato il tracking rapido persistente attivato dall'uscita area.
  * @modified 23.09.2026 - MDS | Normalizzato il lease Supabase con offset UTC.
  */
 package it.xcc.findme.core
@@ -35,7 +36,8 @@ object TrackingConfigResolver {
         relationship: ReceiverTransmitter?,
         now: Instant = Instant.now(),
     ): EffectiveTrackingConfig {
-        val live = isLiveTrackingLeaseActive(relationship?.liveTrackingUntil, now)
+        val live = relationship?.liveTrackingPersistent == true ||
+            isLiveTrackingLeaseActive(relationship?.liveTrackingUntil, now)
         val liveHistory = live && relationship?.liveHistory == true
         val locationInterval = if (live) {
             settings.onlineLocationIntervalSec

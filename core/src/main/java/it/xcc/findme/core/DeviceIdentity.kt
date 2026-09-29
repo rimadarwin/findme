@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Identità locale del dispositivo e cache delle impostazioni tracking.
+ * @modified 29.09.2026 - MDS | Conservati tracking persistente e retry geofence nei riavvii offline.
  * @modified 23.09.2026 - MDS | Aggiornato il fallback del polling comandi a cinque secondi.
  */
 package it.xcc.findme.core
@@ -56,7 +57,16 @@ class DeviceIdentity(context: Context) {
                 receiverId = receiverId,
                 transmitterId = id,
                 liveTrackingUntil = preferences.getString(KEY_TRACKING_LIVE_UNTIL, null),
+                liveTrackingPersistent = preferences.getBoolean(
+                    KEY_TRACKING_LIVE_PERSISTENT,
+                    false,
+                ),
                 liveHistory = preferences.getBoolean(KEY_TRACKING_LIVE_HISTORY, false),
+                geofenceEnabled = preferences.getBoolean(KEY_GEOFENCE_ENABLED, false),
+                geofenceNotificationPending = preferences.getBoolean(
+                    KEY_GEOFENCE_NOTIFICATION_PENDING,
+                    false,
+                ),
             ),
         )
     }
@@ -75,7 +85,16 @@ class DeviceIdentity(context: Context) {
             .putInt(KEY_COMMAND_POLL_INTERVAL, state.settings.commandPollIntervalSec)
             .putInt(KEY_GEOFENCE_RADIUS, state.settings.geofenceRadiusM)
             .putString(KEY_TRACKING_LIVE_UNTIL, state.relationship.liveTrackingUntil)
+            .putBoolean(
+                KEY_TRACKING_LIVE_PERSISTENT,
+                state.relationship.liveTrackingPersistent,
+            )
             .putBoolean(KEY_TRACKING_LIVE_HISTORY, state.relationship.liveHistory)
+            .putBoolean(KEY_GEOFENCE_ENABLED, state.relationship.geofenceEnabled)
+            .putBoolean(
+                KEY_GEOFENCE_NOTIFICATION_PENDING,
+                state.relationship.geofenceNotificationPending,
+            )
             .apply()
     }
 
@@ -94,7 +113,10 @@ class DeviceIdentity(context: Context) {
         const val KEY_TRACKING_HEARTBEAT = "tracking_heartbeat_sec"
         const val KEY_COMMAND_POLL_INTERVAL = "command_poll_interval_sec"
         const val KEY_TRACKING_LIVE_UNTIL = "tracking_live_until"
+        const val KEY_TRACKING_LIVE_PERSISTENT = "tracking_live_persistent"
         const val KEY_TRACKING_LIVE_HISTORY = "tracking_live_history"
         const val KEY_GEOFENCE_RADIUS = "geofence_radius_m"
+        const val KEY_GEOFENCE_ENABLED = "geofence_enabled"
+        const val KEY_GEOFENCE_NOTIFICATION_PENDING = "geofence_notification_pending"
     }
 }

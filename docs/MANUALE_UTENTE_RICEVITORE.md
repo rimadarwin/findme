@@ -1,6 +1,13 @@
+<!--
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Manuale operativo dell'app FindMe Ricevitore.
+ * @modified 29.09.2026 - MDS | Aggiornato il comportamento dell'avviso uscita area.
+ */
+-->
 # FindMe — Manuale utente Ricevitore
 
-**Versione app:** 0.5.0 · **Manuale:** settembre 2025
+**Versione app:** 0.5.0 · **Manuale:** settembre 2026
 
 | Documento correlato | Collegamento |
 | --- | --- |
@@ -179,9 +186,20 @@ configurato.
 3. Attendere una posizione valida.
 4. Attivare **Avviso uscita area**.
 
-La posizione corrente diventa il centro dell’area. FindMe invia una notifica
-quando il trasmettitore passa dall’interno all’esterno. Non invia notifiche
-continue mentre resta fuori; dopo il rientro l’avviso viene riarmato.
+La posizione corrente diventa il centro dell’area. Quando il trasmettitore
+passa dall’interno all’esterno, FindMe esegue automaticamente tre azioni:
+
+1. spegne **Avviso uscita area**;
+2. accende **Aggiornamento rapido** e **Storico rapido**;
+3. invia una notifica al ricevitore.
+
+I due controlli rapidi restano attivi anche bloccando il telefono, chiudendo il
+dettaglio o riaprendo l’app. Per tornare alle frequenze normali occorre
+disattivare manualmente **Aggiornamento rapido**. Per sorvegliare nuovamente
+l’area, riattivare **Avviso uscita area** dalla posizione desiderata.
+
+Se la consegna Firebase incontra un errore temporaneo, FindMe conserva
+l’avviso e lo ritenta automaticamente.
 
 Per notifiche anche ad app chiusa devono essere configurate e autorizzate le
 notifiche Firebase del ricevitore.

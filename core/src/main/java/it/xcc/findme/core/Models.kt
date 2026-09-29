@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Modelli serializzabili condivisi tra ricevitore e trasmettitore.
+ * @modified 29.09.2026 - MDS | Esposto lo stato persistente di tracking e retry geofence.
  * @modified 23.09.2026 - MDS | Impostato a cinque secondi il polling comandi predefinito.
  */
 @file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
@@ -171,6 +172,8 @@ data class ReceiverTransmitter(
     val alias: String? = null,
     @SerialName("live_tracking_until") val liveTrackingUntil: String? = null,
     @EncodeDefault
+    @SerialName("live_tracking_persistent") val liveTrackingPersistent: Boolean = false,
+    @EncodeDefault
     @SerialName("live_history") val liveHistory: Boolean = false,
     @EncodeDefault
     @SerialName("geofence_enabled") val geofenceEnabled: Boolean = false,
@@ -180,6 +183,8 @@ data class ReceiverTransmitter(
     @EncodeDefault
     @SerialName("geofence_is_outside") val geofenceIsOutside: Boolean = false,
     @SerialName("geofence_updated_at") val geofenceUpdatedAt: String? = null,
+    @EncodeDefault
+    @SerialName("geofence_notification_pending") val geofenceNotificationPending: Boolean = false,
 )
 
 @Serializable

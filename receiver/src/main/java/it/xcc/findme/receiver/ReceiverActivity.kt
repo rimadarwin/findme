@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Activity principale del ricevitore e coordinamento delle funzioni remote.
+ * @modified 29.09.2026 - MDS | Allineati switch e lifecycle al tracking persistente server-driven.
  * @modified 23.09.2026 - MDS | Forzato il portrait in uscita e aggiunto feedback cambio camera.
  * @modified 23.09.2026 - MDS | Mantenuto il tracking rapido durante il blocco schermo.
  * @modified 23.09.2026 - MDS | Aggiunto feedback verificato per i comandi multimediali.
@@ -78,6 +79,7 @@ import it.xcc.findme.core.MonitoredDevice
 import it.xcc.findme.core.ReceiverProfile
 import it.xcc.findme.core.ReceiverPowerPolicy
 import it.xcc.findme.core.ReceiverTrackingSettings
+import it.xcc.findme.core.TrackingConfigResolver
 import it.xcc.findme.core.TrackingSettingsUpdate
 import it.xcc.findme.core.VoiceMessagePolicy
 import it.xcc.findme.core.VoiceMessageStatus
@@ -125,6 +127,8 @@ class ReceiverActivity : ComponentActivity() {
     private var trackingSettings by mutableStateOf(ReceiverTrackingSettings(receiverId = ""))
     private var fastTrackingDeviceId by mutableStateOf<String?>(null)
     private var fastHistory by mutableStateOf(false)
+    private var fastHistoryOverrideDeviceId by mutableStateOf<String?>(null)
+    private var fastTrackingDisabledOverrideDeviceId by mutableStateOf<String?>(null)
     private var message by mutableStateOf("")
     private var historyDeletionInProgress by mutableStateOf(false)
     private var historyDeletionMessage by mutableStateOf("")
@@ -341,20 +345,16 @@ class ReceiverActivity : ComponentActivity() {
             PositionFullscreenScreen(
                 item = fullscreenDevice,
                 heartbeatIntervalSec = trackingSettings.heartbeatIntervalSec,
-                fastTrackingActive = fastTrackingDeviceId == fullscreenDevice.device.id,
-                fastHistoryActive =
-                    fastTrackingDeviceId == fullscreenDevice.device.id && fastHistory,
+                fastTrackingActive = isFastTrackingActive(fullscreenDevice),
+                fastHistoryActive = isFastHistoryActive(fullscreenDevice),
                 onFastTrackingChange = {
                     if (it) {
                         startFastTracking(fullscreenDevice.device.id)
                     } else {
-                        stopFastTracking()
+                        stopFastTracking(fullscreenDevice.device.id)
                     }
                 },
-                onFastHistoryChange = {
-                    fastHistory = it
-                    renewFastTracking()
-                },
+                onFastHistoryChange = { setFastHistory(fullscreenDevice, it) },
                 onGeofenceChange = { setGeofence(fullscreenDevice, it) },
                 onOpenHistory = {
                     closeFullscreenMap()
@@ -499,16 +499,16 @@ class ReceiverActivity : ComponentActivity() {
                         cameraSwitchFeedback = cameraSwitchFeedback?.takeIf {
                             it.deviceId == selected.device.id
                         },
-                        fastTrackingActive = fastTrackingDeviceId == selected.device.id,
-                        fastHistoryActive =
-                            fastTrackingDeviceId == selected.device.id && fastHistory,
+                        fastTrackingActive = isFastTrackingActive(selected),
+                        fastHistoryActive = isFastHistoryActive(selected),
                         onFastTrackingChange = {
-                            if (it) startFastTracking(selected.device.id) else stopFastTracking()
+                            if (it) {
+                                startFastTracking(selected.device.id)
+                            } else {
+                                stopFastTracking(selected.device.id)
+                            }
                         },
-                        onFastHistoryChange = {
-                            fastHistory = it
-                            renewFastTracking()
-                        },
+                        onFastHistoryChange = { setFastHistory(selected, it) },
                         onGeofenceChange = {
                             setGeofence(selected, it)
                         },
@@ -738,6 +738,38 @@ class ReceiverActivity : ComponentActivity() {
 
     private fun handleDeviceRows(rows: List<MonitoredDevice>) {
         devices = rows
+        fastTrackingDeviceId?.let { deviceId ->
+            val persistentRelationship = rows
+                .firstOrNull { it.device.id == deviceId }
+                ?.relationship
+                ?.takeIf { it.liveTrackingPersistent }
+            if (persistentRelationship != null) {
+                trackingLeaseJob?.cancel()
+                trackingLeaseJob = null
+                fastTrackingDeviceId = null
+                fastHistory = persistentRelationship.liveHistory
+                updateMediaPowerProtection()
+            }
+        }
+        fastHistoryOverrideDeviceId?.let { deviceId ->
+            val serverHistory = rows
+                .firstOrNull { it.device.id == deviceId }
+                ?.relationship
+                ?.liveHistory
+            if (serverHistory == fastHistory) fastHistoryOverrideDeviceId = null
+        }
+        fastTrackingDisabledOverrideDeviceId?.let { deviceId ->
+            val relationship = rows
+                .firstOrNull { it.device.id == deviceId }
+                ?.relationship
+            if (relationship?.liveTrackingPersistent != true &&
+                !TrackingConfigResolver.isLiveTrackingLeaseActive(
+                    relationship?.liveTrackingUntil,
+                )
+            ) {
+                fastTrackingDisabledOverrideDeviceId = null
+            }
+        }
         reconcileMediaCommandFeedback(rows)
         reconcileCameraSwitchFeedback(rows)
         if (message.startsWith("Connessione temporaneamente assente")) {
@@ -1262,9 +1294,12 @@ class ReceiverActivity : ComponentActivity() {
     /**
      * Avvia il lease rapido e protegge la sessione anche durante il blocco schermo.
      */
-    private fun startFastTracking(deviceId: String) {
+    private fun startFastTracking(deviceId: String, historyEnabled: Boolean = false) {
+        if (fastTrackingDisabledOverrideDeviceId == deviceId) {
+            fastTrackingDisabledOverrideDeviceId = null
+        }
         fastTrackingDeviceId = deviceId
-        fastHistory = false
+        fastHistory = historyEnabled
         updateMediaPowerProtection()
         trackingLeaseJob?.cancel()
         trackingLeaseJob = lifecycleScope.launch {
@@ -1272,6 +1307,57 @@ class ReceiverActivity : ComponentActivity() {
                 renewFastTracking()
                 delay(TRACKING_LEASE_RENEW_INTERVAL_MS)
             }
+        }
+    }
+
+    /**
+     * Cambia lo storico rapido rispettando l'origine temporanea o persistente del tracking.
+     */
+    private fun setFastHistory(device: MonitoredDevice, enabled: Boolean) {
+        val deviceId = device.device.id
+        fastHistory = enabled
+        if (device.relationship?.liveTrackingPersistent == true) {
+            fastHistoryOverrideDeviceId = deviceId
+            lifecycleScope.launch {
+                runCatching {
+                    repository!!.setLiveHistory(identity.id, deviceId, enabled)
+                }.onFailure {
+                    fastHistoryOverrideDeviceId = null
+                    requestDataPlaneRecovery(it, "Aggiornamento storico rapido non riuscito.")
+                }
+            }
+        } else if (fastTrackingDeviceId == deviceId) {
+            renewFastTracking()
+        } else {
+            startFastTracking(deviceId, enabled)
+        }
+    }
+
+    /**
+     * Verifica tracking persistente, lease server e rinnovo locale del dispositivo.
+     */
+    private fun isFastTrackingActive(device: MonitoredDevice): Boolean =
+        fastTrackingDisabledOverrideDeviceId != device.device.id &&
+            (device.relationship?.liveTrackingPersistent == true ||
+            TrackingConfigResolver.isLiveTrackingLeaseActive(
+                device.relationship?.liveTrackingUntil,
+            ) ||
+                fastTrackingDeviceId == device.device.id)
+
+    /**
+     * Risolve lo stato dello storico rapido con feedback ottimistico per il server.
+     */
+    private fun isFastHistoryActive(device: MonitoredDevice): Boolean {
+        if (!isFastTrackingActive(device)) return false
+        val relationship = device.relationship
+        return if (relationship?.liveTrackingPersistent == true) {
+            if (fastHistoryOverrideDeviceId == device.device.id) {
+                fastHistory
+            } else {
+                relationship.liveHistory
+            }
+        } else {
+            fastTrackingDeviceId == device.device.id && fastHistory
         }
     }
 
@@ -1294,22 +1380,34 @@ class ReceiverActivity : ComponentActivity() {
     /**
      * Arresta il rinnovo rapido e rilascia la protezione se non restano altre attività.
      */
-    private fun stopFastTracking() {
-        val deviceId = fastTrackingDeviceId
+    private fun stopFastTracking(manualDeviceId: String? = null) {
+        val leasedDeviceId = fastTrackingDeviceId
+        val deviceId = manualDeviceId ?: leasedDeviceId
         trackingLeaseJob?.cancel()
         trackingLeaseJob = null
         fastTrackingDeviceId = null
         fastHistory = false
+        if (fastHistoryOverrideDeviceId == deviceId) fastHistoryOverrideDeviceId = null
+        if (manualDeviceId != null) fastTrackingDisabledOverrideDeviceId = deviceId
         updateMediaPowerProtection()
         if (deviceId != null) {
             lifecycleScope.launch {
                 runCatching {
-                    repository!!.setLiveTracking(
-                        receiverId = identity.id,
-                        transmitterId = deviceId,
-                        until = null,
-                        liveHistory = false,
-                    )
+                    if (manualDeviceId != null) {
+                        repository!!.clearLiveTracking(identity.id, deviceId)
+                    } else {
+                        repository!!.setLiveTracking(
+                            receiverId = identity.id,
+                            transmitterId = deviceId,
+                            until = null,
+                            liveHistory = false,
+                        )
+                    }
+                }.onFailure {
+                    if (manualDeviceId != null) {
+                        fastTrackingDisabledOverrideDeviceId = null
+                        requestDataPlaneRecovery(it, "Disattivazione rapida non riuscita.")
+                    }
                 }
             }
         }

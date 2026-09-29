@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Servizio foreground per tracking, comandi remoti e streaming del trasmettitore.
+ * @modified 29.09.2026 - MDS | Mantenuti tracking rapido e retry notifica dopo l'uscita area.
  * @modified 23.09.2026 - MDS | Aggiunto recovery automatico delle richieste posizione bloccate.
  */
 package it.xcc.findme.transmitter
@@ -304,7 +305,10 @@ class MonitoringService : Service() {
                 identity.cacheTrackingState(state)
                 Log.d(
                     TAG,
-                    "Tracking state received; liveUntil=${state.relationship.liveTrackingUntil}",
+                    "Tracking state received; liveUntil=${state.relationship.liveTrackingUntil}, " +
+                        "persistent=${state.relationship.liveTrackingPersistent}, " +
+                        "geofence=${state.relationship.geofenceEnabled}, " +
+                        "notificationPending=${state.relationship.geofenceNotificationPending}",
                 )
                 applyEffectiveTrackingConfig()
             }
@@ -853,7 +857,10 @@ class MonitoringService : Service() {
                 Log.e(TAG, "Location upload failed", it)
                 recoverySignals.trySend(it)
             }
-            if (trackingState?.relationship?.geofenceEnabled == true) {
+            val relationship = trackingState?.relationship
+            if (relationship?.geofenceEnabled == true ||
+                relationship?.geofenceNotificationPending == true
+            ) {
                 runCatching {
                     repository.checkGeofence(point)
                 }.onFailure {

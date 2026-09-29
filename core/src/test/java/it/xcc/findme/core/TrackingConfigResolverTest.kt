@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Verifica la risoluzione delle frequenze di tracking e le policy correlate.
+ * @modified 29.09.2026 - MDS | Coperti tracking persistente e indipendenza dall'avviso area.
+ */
 package it.xcc.findme.core
 
 import java.time.Instant
@@ -65,6 +70,73 @@ class TrackingConfigResolverTest {
         assertFalse(config.liveHistory)
         assertEquals(60, config.locationIntervalSec)
         assertEquals(120, config.historyIntervalSec)
+    }
+
+    @Test
+    fun `persistent tracking enables online frequency without lease`() {
+        val relationship = ReceiverTransmitter(
+            receiverId = "receiver",
+            transmitterId = "transmitter",
+            liveTrackingPersistent = true,
+        )
+
+        val config = TrackingConfigResolver.resolve(settings, relationship)
+
+        assertTrue(config.liveTracking)
+        assertFalse(config.liveHistory)
+        assertEquals(10, config.locationIntervalSec)
+    }
+
+    @Test
+    fun `persistent tracking enables fast history when requested`() {
+        val relationship = ReceiverTransmitter(
+            receiverId = "receiver",
+            transmitterId = "transmitter",
+            liveTrackingUntil = "2026-09-17T07:00:00Z",
+            liveTrackingPersistent = true,
+            liveHistory = true,
+        )
+
+        val config = TrackingConfigResolver.resolve(
+            settings,
+            relationship,
+            Instant.parse("2026-09-17T08:00:00Z"),
+        )
+
+        assertTrue(config.liveTracking)
+        assertTrue(config.liveHistory)
+        assertEquals(20, config.historyIntervalSec)
+    }
+
+    @Test
+    fun `enabled geofence alone does not change tracking frequency`() {
+        val relationship = ReceiverTransmitter(
+            receiverId = "receiver",
+            transmitterId = "transmitter",
+            geofenceEnabled = true,
+        )
+
+        val config = TrackingConfigResolver.resolve(settings, relationship)
+
+        assertFalse(config.liveTracking)
+        assertFalse(config.liveHistory)
+        assertEquals(60, config.locationIntervalSec)
+    }
+
+    @Test
+    fun `cleared persistent tracking returns to offline frequency`() {
+        val relationship = ReceiverTransmitter(
+            receiverId = "receiver",
+            transmitterId = "transmitter",
+            liveTrackingPersistent = false,
+            liveHistory = true,
+        )
+
+        val config = TrackingConfigResolver.resolve(settings, relationship)
+
+        assertFalse(config.liveTracking)
+        assertFalse(config.liveHistory)
+        assertEquals(60, config.locationIntervalSec)
     }
 
     @Test

@@ -2,6 +2,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Guida alla configurazione dei servizi esterni usati da FindMe.
+ * @modified 29.09.2026 - MDS | Documentata la consegna FCM persistente con retry.
  * @modified 24.09.2026 - MDS | Documentata la configurazione LiveKit multi-tenant.
  */
 -->
@@ -271,13 +272,15 @@ non è aperta. Firebase Cloud Messaging non richiede un piano a pagamento.
 5. In **Impostazioni progetto > Account di servizio**, generare una chiave JSON
    e salvarla temporaneamente come `firebase-service-account.json` fuori dal
    repository oppure nella root (il nome è escluso da Git).
-6. Salvare il JSON compresso nei secrets Supabase e distribuire la funzione:
+6. Codificare il JSON in Base64, così PowerShell non altera virgolette e
+   caratteri di escape, salvarlo nei secrets Supabase e distribuire la
+   funzione:
 
 ```powershell
-$firebase = Get-Content .\firebase-service-account.json -Raw |
-  ConvertFrom-Json |
-  ConvertTo-Json -Compress
-npx supabase secrets set "FIREBASE_SERVICE_ACCOUNT_JSON=$firebase"
+$firebase = [Convert]::ToBase64String(
+  [IO.File]::ReadAllBytes("$PWD\firebase-service-account.json")
+)
+npx supabase secrets set "FIREBASE_SERVICE_ACCOUNT_BASE64=$firebase"
 npx supabase functions deploy geofence-alert
 ```
 
@@ -287,6 +290,8 @@ ricevitore, aprirlo una volta e concedere il permesso notifiche. L’identificat
 di installazione FCM viene registrato automaticamente in
 `receiver_push_tokens`.
 
-Il trasmettitore invoca `geofence-alert` solo se l’avviso area è attivo. La RPC
-atomica `evaluate_geofence` notifica una sola transizione interno→esterno; un
-rientro nell’area riarma l’avviso.
+Il trasmettitore invoca `geofence-alert` se l’avviso area è attivo o se una
+consegna è pendente. La RPC atomica `evaluate_geofence`, alla prima uscita,
+spegne l’avviso, attiva tracking e storico rapidi persistenti e accoda una sola
+notifica. Se FCM non conferma alcun invio, l’evento resta nel database e viene
+ritentato con backoff fino alla consegna.

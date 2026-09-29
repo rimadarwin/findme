@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Repository condiviso per Supabase, tracking, comandi e contenuti multimediali.
+ * @modified 29.09.2026 - MDS | Distinti lease UI, tracking persistente e disattivazione manuale.
  * @modified 23.09.2026 - MDS | Aggiunto polling di recovery dello stato tracking.
  */
 @file:OptIn(
@@ -250,6 +251,9 @@ class FindMeRepository(
         return TrackingRuntimeState(settings, relationship)
     }
 
+    /**
+     * Aggiorna il lease temporaneo senza cancellare un eventuale tracking persistente.
+     */
     suspend fun setLiveTracking(
         receiverId: String,
         transmitterId: String,
@@ -257,12 +261,57 @@ class FindMeRepository(
         liveHistory: Boolean,
     ) {
         ensureAuthenticated()
-        client.from("receiver_transmitters").update(
-            {
-                set("live_tracking_until", until?.toString())
-                set("live_history", liveHistory && until != null)
-            },
-        ) {
+        client.from("receiver_transmitters").update({
+            set("live_tracking_until", until?.toString())
+            if (until != null) set("live_history", liveHistory)
+        }) {
+            filter {
+                eq("receiver_id", receiverId)
+                eq("transmitter_id", transmitterId)
+            }
+        }
+        if (until == null) {
+            client.from("receiver_transmitters").update({
+                set("live_history", false)
+            }) {
+                filter {
+                    eq("receiver_id", receiverId)
+                    eq("transmitter_id", transmitterId)
+                    eq("live_tracking_persistent", false)
+                }
+            }
+        }
+    }
+
+    /**
+     * Disattiva esplicitamente ogni modalità rapida, inclusa quella persistente.
+     */
+    suspend fun clearLiveTracking(receiverId: String, transmitterId: String) {
+        ensureAuthenticated()
+        client.from("receiver_transmitters").update({
+            set("live_tracking_until", null as String?)
+            set("live_tracking_persistent", false)
+            set("live_history", false)
+        }) {
+            filter {
+                eq("receiver_id", receiverId)
+                eq("transmitter_id", transmitterId)
+            }
+        }
+    }
+
+    /**
+     * Cambia lo storico rapido senza modificare il tracking rapido persistente.
+     */
+    suspend fun setLiveHistory(
+        receiverId: String,
+        transmitterId: String,
+        enabled: Boolean,
+    ) {
+        ensureAuthenticated()
+        client.from("receiver_transmitters").update({
+            set("live_history", enabled)
+        }) {
             filter {
                 eq("receiver_id", receiverId)
                 eq("transmitter_id", transmitterId)

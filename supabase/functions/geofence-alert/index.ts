@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Valuta l'uscita area e consegna la notifica FCM con retry persistente.
+ * @modified 29.09.2026 - MDS | Aggiunti claim atomico, conferma e diagnostica dei retry FCM.
+ */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { GoogleAuth } from "npm:google-auth-library@9";
 
@@ -11,10 +16,11 @@ Deno.serve(async (request) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  let pendingTransition: {
+  let pendingDelivery: {
     admin: ReturnType<typeof createClient>;
     receiverId: string;
     deviceId: string;
+    attempt: number;
   } | null = null;
   try {
     const authorization = request.headers.get("Authorization");
@@ -61,10 +67,11 @@ Deno.serve(async (request) => {
       supabaseUrl,
       requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
     );
-    pendingTransition = {
+    pendingDelivery = {
       admin,
       receiverId: evaluation.receiver_id,
       deviceId,
+      attempt: Number(evaluation.notification_attempt ?? 1),
     };
     const [{ data: relation }, { data: device }, { data: tokens }] = await Promise.all([
       admin
@@ -80,11 +87,21 @@ Deno.serve(async (request) => {
         .eq("receiver_id", evaluation.receiver_id),
     ]);
     if (!tokens?.length) {
-      await resetNotificationTransition(admin, evaluation.receiver_id, deviceId);
-      return json({ notified: false, reason: "no_push_tokens" });
+      await recordDeliveryFailure(
+        admin,
+        evaluation.receiver_id,
+        deviceId,
+        "Nessuna installazione FCM registrata",
+      );
+      return json({
+        notified: false,
+        reason: "no_push_tokens",
+        retryPending: true,
+        attempt: pendingDelivery.attempt,
+      });
     }
 
-    const serviceAccount = JSON.parse(requiredEnv("FIREBASE_SERVICE_ACCOUNT_JSON"));
+    const serviceAccount = firebaseServiceAccount();
     const auth = new GoogleAuth({
       credentials: serviceAccount,
       scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
@@ -127,49 +144,114 @@ Deno.serve(async (request) => {
         invalidTokens.push(token);
       }
       if (!response.ok) console.error("FCM send failed", response.status, responseText);
-      return response.ok;
+      return {
+        ok: response.ok,
+        error: response.ok ? null : `FCM ${response.status}: ${responseText}`,
+      };
     }));
 
     if (invalidTokens.length) {
       await admin.from("receiver_push_tokens").delete().in("token", invalidTokens);
     }
-    if (!results.some(Boolean)) {
-      await resetNotificationTransition(admin, evaluation.receiver_id, deviceId);
+    const delivered = results.filter((result) => result.ok).length;
+    if (delivered > 0) {
+      await completeDelivery(admin, evaluation.receiver_id, deviceId);
+      pendingDelivery = null;
+    } else {
+      const deliveryError = results
+        .map((result) => result.error)
+        .filter(Boolean)
+        .join(" | ");
+      await recordDeliveryFailure(
+        admin,
+        evaluation.receiver_id,
+        deviceId,
+        deliveryError || "Firebase non ha confermato la consegna",
+      );
     }
-    if (results.some(Boolean)) pendingTransition = null;
-    return json({ notified: results.some(Boolean), delivered: results.filter(Boolean).length });
+    return json({
+      notified: delivered > 0,
+      delivered,
+      retryPending: delivered === 0,
+      attempt: pendingDelivery?.attempt ?? evaluation.notification_attempt,
+    });
   } catch (error) {
     console.error(error);
-    if (pendingTransition) {
-      await resetNotificationTransition(
-        pendingTransition.admin,
-        pendingTransition.receiverId,
-        pendingTransition.deviceId,
+    if (pendingDelivery) {
+      await recordDeliveryFailure(
+        pendingDelivery.admin,
+        pendingDelivery.receiverId,
+        pendingDelivery.deviceId,
+        error instanceof Error ? error.message : String(error),
       );
     }
     return json({ error: "Internal server error" }, 500);
   }
 });
 
-async function resetNotificationTransition(
+/** Conferma la consegna e rimuove il payload pendente dalla relazione. */
+async function completeDelivery(
   admin: ReturnType<typeof createClient>,
   receiverId: string,
   deviceId: string,
 ) {
-  await admin
+  const { error } = await admin
     .from("receiver_transmitters")
-    .update({ geofence_is_outside: false })
+    .update({
+      geofence_notification_pending: false,
+      geofence_notification_distance_m: null,
+      geofence_notification_radius_m: null,
+      geofence_notification_attempts: 0,
+      geofence_notification_next_attempt_at: null,
+      geofence_notification_created_at: null,
+      geofence_notification_last_error: null,
+    })
     .eq("receiver_id", receiverId)
     .eq("transmitter_id", deviceId)
-    .eq("geofence_enabled", true);
+    .eq("geofence_notification_pending", true);
+  if (error) throw error;
 }
 
+/** Conserva un errore sintetico lasciando il retry già pianificato dalla RPC. */
+async function recordDeliveryFailure(
+  admin: ReturnType<typeof createClient>,
+  receiverId: string,
+  deviceId: string,
+  message: string,
+) {
+  const { error } = await admin
+    .from("receiver_transmitters")
+    .update({
+      geofence_notification_last_error: sanitizeDiagnostic(message),
+    })
+    .eq("receiver_id", receiverId)
+    .eq("transmitter_id", deviceId)
+    .eq("geofence_notification_pending", true);
+  if (error) console.error("Unable to persist FCM failure", error);
+}
+
+/** Oscura token e credenziali lunghe prima di salvare una diagnostica. */
+function sanitizeDiagnostic(message: string): string {
+  return message
+    .replace(/[A-Za-z0-9_./+=-]{80,}/g, "[dato-riservato]")
+    .slice(0, 2000);
+}
+
+/** Decodifica il service account Base64, mantenendo compatibilità col vecchio JSON. */
+function firebaseServiceAccount(): Record<string, string> {
+  const encoded = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_BASE64");
+  if (encoded) return JSON.parse(atob(encoded));
+  return JSON.parse(requiredEnv("FIREBASE_SERVICE_ACCOUNT_JSON"));
+}
+
+/** Restituisce una variabile obbligatoria senza esporne il contenuto. */
 function requiredEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing ${name}`);
   return value;
 }
 
+/** Costruisce una risposta JSON con CORS uniforme. */
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
