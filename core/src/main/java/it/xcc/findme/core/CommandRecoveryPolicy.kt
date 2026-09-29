@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Compatta i comandi di stato preservando quelli puntuali.
+ * @modified 29.09.2026 - MDS | Reso passthrough ogni messaggio testuale.
+ */
 package it.xcc.findme.core
 
 object CommandRecoveryPolicy {
@@ -30,6 +35,7 @@ object CommandRecoveryPolicy {
         -> "monitoring"
         CommandType.SWITCH_CAMERA,
         CommandType.PLAY_VOICE_MESSAGE,
+        CommandType.SHOW_TEXT_MESSAGE,
         -> null
     }
 }

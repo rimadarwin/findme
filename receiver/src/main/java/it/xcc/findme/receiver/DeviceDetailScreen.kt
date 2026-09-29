@@ -1,6 +1,8 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Schermata di dettaglio del trasmettitore e controlli remoti.
+ * @modified 29.09.2026 - MDS | Compattati i link posizione e rispettata la barra di navigazione.
+ * @modified 29.09.2026 - MDS | Aggiunto accesso alla verifica distanza.
  * @modified 29.09.2026 - MDS | Spiegato l'effetto persistente dell'uscita area sui controlli rapidi.
  * @modified 23.09.2026 - MDS | Aggiunto indicatore durante il cambio fotocamera.
  * @modified 23.09.2026 - MDS | Chiarita disponibilità e persistenza del tracking rapido.
@@ -18,12 +20,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Message
 import androidx.compose.material.icons.automirrored.outlined.ScreenShare
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Mic
@@ -48,6 +52,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -67,6 +72,7 @@ import it.xcc.findme.core.MediaCommandPhase
 import it.xcc.findme.core.MediaCommandPolicy
 import it.xcc.findme.core.MediaStreamKind
 import it.xcc.findme.core.MonitoredDevice
+import it.xcc.findme.core.TextMessagePolicy
 import it.xcc.findme.core.VoiceMessagePolicy
 import it.xcc.findme.core.VoiceMessageVolume
 import it.xcc.findme.receiver.recording.LocalRecordingState
@@ -80,6 +86,7 @@ enum class DeviceTab(
     VIDEO("Video", Icons.Outlined.Videocam),
     AUDIO("Audio", Icons.Outlined.Mic),
     SCREEN("Schermo", Icons.AutoMirrored.Outlined.ScreenShare),
+    MESSAGE("Messaggio", Icons.AutoMirrored.Outlined.Message),
 }
 
 @Composable
@@ -101,6 +108,7 @@ fun DeviceDetailScreen(
     onFullscreen: () -> Unit,
     onScreenFullscreen: () -> Unit,
     onOpenHistory: () -> Unit,
+    onVerifyDistance: () -> Unit,
     onTakePhoto: () -> Unit,
     videoTrackAvailable: Boolean,
     audioTrackAvailable: Boolean,
@@ -118,6 +126,11 @@ fun DeviceDetailScreen(
     onVoiceMessageSend: () -> Unit,
     onVoiceMessageDiscard: () -> Unit,
     onScreenRecordingToggle: () -> Unit,
+    textMessageDraft: String,
+    textMessageFeedback: String,
+    textMessageSending: Boolean,
+    onTextMessageDraftChange: (String) -> Unit,
+    onTextMessageSend: () -> Unit,
     snapshotPreview: Bitmap?,
     onSnapshotAnimationFinished: () -> Unit,
     videoContent: @Composable () -> Unit,
@@ -160,6 +173,7 @@ fun DeviceDetailScreen(
                     onGeofenceChange = onGeofenceChange,
                     onFullscreen = onFullscreen,
                     onOpenHistory = onOpenHistory,
+                    onVerifyDistance = onVerifyDistance,
                 )
                 DeviceTab.VIDEO -> VideoTab(
                     item = item,
@@ -201,12 +215,84 @@ fun DeviceDetailScreen(
                     onFullscreen = onScreenFullscreen,
                     screenContent = screenContent,
                 )
+                DeviceTab.MESSAGE -> TextMessageTab(
+                    draft = textMessageDraft,
+                    feedback = textMessageFeedback,
+                    sending = textMessageSending,
+                    onDraftChange = onTextMessageDraftChange,
+                    onSend = onTextMessageSend,
+                )
             }
         }
         snapshotPreview?.let {
             SnapshotCaptureAnimation(
                 bitmap = it,
                 onFinished = onSnapshotAnimationFinished,
+            )
+        }
+    }
+}
+
+/** Compone editor, limite caratteri, invio e feedback del messaggio testuale. */
+@Composable
+private fun TextMessageTab(
+    draft: String,
+    feedback: String,
+    sending: Boolean,
+    onDraftChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            "Messaggio in primo piano",
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.titleLarge,
+        )
+        Text(
+            "Il messaggio resta in attesa anche se il trasmettitore è offline e viene " +
+                "chiuso soltanto premendo la X sul suo schermo.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = draft,
+            onValueChange = {
+                onDraftChange(it.take(TextMessagePolicy.MAX_LENGTH))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 6,
+            maxLines = 12,
+            label = { Text("Messaggio") },
+            supportingText = {
+                Text("${draft.length}/${TextMessagePolicy.MAX_LENGTH}")
+            },
+            enabled = !sending,
+        )
+        Button(
+            onClick = onSend,
+            enabled = !sending && draft.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (sending) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+                Text("  Invio…")
+            } else {
+                Text("Invia")
+            }
+        }
+        if (feedback.isNotBlank()) {
+            Text(
+                feedback,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
@@ -280,6 +366,7 @@ private fun PositionTab(
     onGeofenceChange: (Boolean) -> Unit,
     onFullscreen: () -> Unit,
     onOpenHistory: () -> Unit,
+    onVerifyDistance: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -328,6 +415,7 @@ private fun PositionTab(
             onFastHistoryChange = onFastHistoryChange,
             onGeofenceChange = onGeofenceChange,
             onOpenHistory = onOpenHistory,
+            onVerifyDistance = onVerifyDistance,
         )
     }
 }
@@ -363,6 +451,7 @@ internal fun PositionControls(
     onFastHistoryChange: (Boolean) -> Unit,
     onGeofenceChange: (Boolean) -> Unit,
     onOpenHistory: () -> Unit,
+    onVerifyDistance: () -> Unit,
 ) {
     val geofence = item.relationship
     val geofenceActive = geofence?.geofenceEnabled == true
@@ -432,9 +521,15 @@ internal fun PositionControls(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        TextButton(onClick = onOpenHistory) {
-            Icon(Icons.Outlined.History, contentDescription = null)
-            Text("  Consulta storico posizioni")
+        Column {
+            TextButton(onClick = onOpenHistory) {
+                Icon(Icons.Outlined.History, contentDescription = null)
+                Text("  Consulta storico posizioni")
+            }
+            TextButton(onClick = onVerifyDistance) {
+                Icon(Icons.Outlined.LocationOn, contentDescription = null)
+                Text("  Verifica distanza")
+            }
         }
     }
 }

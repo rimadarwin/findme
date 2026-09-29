@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Vista fullscreen della posizione corrente e relativi controlli.
+ * @modified 29.09.2026 - MDS | Collegato l'accesso alla verifica distanza.
+ */
 package it.xcc.findme.receiver
 
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +39,7 @@ fun PositionFullscreenScreen(
     onFastHistoryChange: (Boolean) -> Unit,
     onGeofenceChange: (Boolean) -> Unit,
     onOpenHistory: () -> Unit,
+    onVerifyDistance: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -105,6 +111,7 @@ fun PositionFullscreenScreen(
                 onFastHistoryChange = onFastHistoryChange,
                 onGeofenceChange = onGeofenceChange,
                 onOpenHistory = onOpenHistory,
+                onVerifyDistance = onVerifyDistance,
             )
         }
     }

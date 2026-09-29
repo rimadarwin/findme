@@ -2,6 +2,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Guida alla configurazione dei servizi esterni usati da FindMe.
+ * @modified 29.09.2026 - MDS | Documentati schema messaggi testuali e permesso overlay.
  * @modified 29.09.2026 - MDS | Documentata la consegna FCM persistente con retry.
  * @modified 24.09.2026 - MDS | Documentata la configurazione LiveKit multi-tenant.
  */
@@ -40,7 +41,11 @@ comandi usato come fallback quando Supabase Realtime non risponde. Le migrazioni
 `voice-messages`, le policy RLS e il comando atomico per consegnare messaggi
 vocali. La migrazione `202609240001_receiver_service_configs.sql` abilita
 override LiveKit per ricevitore senza memorizzare credenziali nel database. Non
-rendere pubblico il bucket.
+rendere pubblico il bucket. Le migrazioni
+`202609290002_online_interval_2s.sql`,
+`202609290003_text_messages_schema.sql` e
+`202609290004_text_messages_rpc.sql` aggiungono l'intervallo online di due
+secondi e la coda persistente dei messaggi testuali con RPC atomica.
 
 ### Identità automatica
 
@@ -253,6 +258,12 @@ o revoca dalla notifica di sistema. In questi casi la notifica FindMe apre la
 dashboard, dove **Riattiva** ripresenta il consenso. Contenuti DRM, finestre con
 `FLAG_SECURE` e alcune schermate di sistema possono apparire nere. L’audio
 interno non è acquisito.
+
+Per i messaggi testuali in primo piano, autorizzare inoltre **Mostra sopra
+altre app** dalla dashboard del trasmettitore. Il permesso Android
+`SYSTEM_ALERT_WINDOW` non è pre-concedibile dal Device Owner. Se manca, il
+messaggio resta pendente e viene mostrato automaticamente quando l'utente lo
+concede.
 
 FCM non è necessario per controllare camera e microfono sui telefoni Device
 Owner e non può aggirare i vincoli Android sui telefoni standard. È invece

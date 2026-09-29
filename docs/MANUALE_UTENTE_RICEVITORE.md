@@ -2,6 +2,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Manuale operativo dell'app FindMe Ricevitore.
+ * @modified 29.09.2026 - MDS | Aggiunti verifica distanza e tab messaggio.
  * @modified 29.09.2026 - MDS | Aggiornato il comportamento dell'avviso uscita area.
  */
 -->
@@ -84,12 +85,13 @@ compatta con:
 - stato online e batteria;
 - pallino del monitoraggio.
 
-Sotto la testata sono disponibili quattro icone:
+Sotto la testata sono disponibili cinque icone:
 
 1. puntatore: **Posizione**;
 2. videocamera: **Video**;
 3. microfono: **Audio**;
 4. schermo: **Mirroring**.
+5. fumetto: **Messaggio**.
 
 Uscendo dal dettaglio FindMe ferma stream e registrazioni e scarta
 un’eventuale bozza vocale.
@@ -116,7 +118,7 @@ Un intervallo breve offre maggiore dettaglio ma usa più batteria e traffico.
 
 È usata quando si attiva **Aggiornamento rapido**:
 
-- 5, 10, 15 o 20 secondi.
+- 2, 5, 10, 15 o 20 secondi.
 
 ### 3.3 Frequenza storico
 
@@ -219,6 +221,22 @@ Il telefono viene bloccato temporaneamente in orizzontale:
 
 Usare il controllo nel pannello destro o il tasto Indietro per uscire.
 Orientamento e barre vengono ripristinati automaticamente.
+
+### 4.5 Verifica distanza
+
+Sotto **Consulta storico posizioni**, premere **Verifica distanza** e concedere
+la posizione al ricevitore. La mappa mostra il trasmettitore in blu, il
+ricevitore in rosso e una linea tratteggiata fra i due. Sopra sono indicate
+coordinate e accuratezza; sotto è riportata la distanza in linea d’aria.
+
+![Verifica distanza](manuale/assets/receiver-17-distanza.png)
+
+La frequenza segue lo switch **Aggiornamento rapido** già presente: online se
+attivo, offline se disattivato. Il GPS del ricevitore viene usato solo mentre
+questa pagina è aperta. L’icona fullscreen apre la mappa orizzontale; usare la
+freccia o Indietro per tornare.
+
+![Verifica distanza fullscreen](manuale/assets/receiver-18-distanza-fullscreen.png)
 
 ## 5. Storico posizioni
 
@@ -417,7 +435,20 @@ Il mirroring non include l’audio interno delle app. Per ascoltare l’ambiente
 usare separatamente la tab Audio. Contenuti DRM, app bancarie e finestre
 protette possono apparire nere per scelta di Android.
 
-## 9. Cancellare lo storico
+## 9. Messaggio in primo piano
+
+Aprire il quinto tab **Messaggio**, scrivere fino a 500 caratteri e premere
+**Invia**. Il comando resta in attesa anche se il trasmettitore è offline. Gli
+stati mostrano attesa, permesso mancante, visualizzazione e chiusura.
+
+![Invio messaggio testuale](manuale/assets/receiver-19-messaggio.png)
+
+Sul trasmettitore il testo appare al centro in una cornice blu neon sopra le
+altre applicazioni. Il messaggio resta visibile finché viene premuta la X. Se
+compare l’avviso di permesso mancante, autorizzare **Messaggi in primo piano**
+sul trasmettitore: il messaggio pendente apparirà automaticamente.
+
+## 10. Cancellare lo storico
 
 In **Configurazioni generali**, scorrere in fondo e premere il pulsante rosso
 **Cancella storico posizioni**.
@@ -432,7 +463,7 @@ In **Configurazioni generali**, scorrere in fondo e premere il pulsante rosso
 L’operazione è definitiva e riguarda solo i dispositivi selezionati. Il
 backend verifica nuovamente che appartengano al ricevitore.
 
-## 10. Schermo spento, cambio app e consumo
+## 11. Schermo spento, cambio app e consumo
 
 Durante streaming o registrazione FindMe mantiene temporaneamente schermo e
 CPU attivi. Il blocco manuale del display non deve interrompere la sessione.
@@ -441,7 +472,7 @@ Passando volontariamente a un’altra app o tornando alla home FindMe può
 chiudere gli stream per evitare consumi non desiderati. Senza audio, video o
 schermo attivi non viene mantenuta alcuna connessione LiveKit.
 
-## 11. Risoluzione dei problemi
+## 12. Risoluzione dei problemi
 
 ### Il trasmettitore è offline
 
@@ -506,7 +537,7 @@ parziali.
 - verificare il feedback di stato;
 - registrare un nuovo messaggio se lo stato finale è fallito.
 
-## 12. Checklist rapida
+## 13. Checklist rapida
 
 - [ ] Ricevitore connesso a Internet.
 - [ ] Trasmettitore associato e online.

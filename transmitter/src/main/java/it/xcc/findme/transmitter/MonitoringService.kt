@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Servizio foreground per tracking, comandi remoti e streaming del trasmettitore.
+ * @modified 29.09.2026 - MDS | Aggiunta coda non bloccante dei messaggi overlay.
  * @modified 29.09.2026 - MDS | Mantenuti tracking rapido e retry notifica dopo l'uscita area.
  * @modified 23.09.2026 - MDS | Aggiunto recovery automatico delle richieste posizione bloccate.
  */
@@ -61,6 +62,8 @@ import it.xcc.findme.core.LocationRecoveryPolicy
 import it.xcc.findme.core.MediaConnectionPolicy
 import it.xcc.findme.core.TrackingConfigResolver
 import it.xcc.findme.core.TrackingRuntimeState
+import it.xcc.findme.core.TextMessageStatus
+import it.xcc.findme.core.TextMessagePolicy
 import it.xcc.findme.core.VoiceMessagePolicy
 import it.xcc.findme.core.VoiceMessageStatus
 import it.xcc.findme.transmitter.screen.ProjectionVideoCapturer
@@ -135,6 +138,10 @@ class MonitoringService : Service() {
     @Volatile
     private var networkWasLost = false
     private var lastSuccessfulHeartbeatElapsedMs = 0L
+    private lateinit var textOverlayController: TextOverlayController
+    private var activeTextMessageCommandId: Long? = null
+    private var activeTextMessageId: String? = null
+    private var overlayPermissionRecoveryJob: Job? = null
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onLost(network: Network) {
@@ -166,6 +173,7 @@ class MonitoringService : Service() {
         }
         connectivityManager.registerDefaultNetworkCallback(networkCallback)
         screenProjectionController = ScreenProjectionController(this, ::onScreenProjectionStopped)
+        textOverlayController = TextOverlayController(this, ::onTextOverlayDismissed)
         createNotificationChannel()
     }
 
@@ -203,6 +211,8 @@ class MonitoringService : Service() {
         scope.cancel()
         room?.disconnect()
         screenProjectionController.stop()
+        textOverlayController.release()
+        overlayPermissionRecoveryJob?.cancel()
         super.onDestroy()
     }
 
@@ -254,8 +264,9 @@ class MonitoringService : Service() {
                             val effectiveIds = CommandRecoveryPolicy.compact(pending)
                                 .mapNotNullTo(mutableSetOf()) { it.id }
                             pending.forEach { command ->
+                                var acknowledge = true
                                 if (command.id == null || command.id in effectiveIds) {
-                                    applyCommand(command)
+                                    acknowledge = applyCommand(command)
                                     publishStatus()
                                 } else {
                                     Log.i(
@@ -263,9 +274,11 @@ class MonitoringService : Service() {
                                         "Skipping superseded command: ${command.command} id=${command.id}",
                                     )
                                 }
-                                command.id?.let { commandId ->
-                                    repository.acknowledgeCommand(commandId)
-                                    appliedCommands += commandId
+                                if (acknowledge) {
+                                    command.id?.let { commandId ->
+                                        repository.acknowledgeCommand(commandId)
+                                        appliedCommands += commandId
+                                    }
                                 }
                         }
                         }
@@ -362,7 +375,7 @@ class MonitoringService : Service() {
         }
     }
 
-    private suspend fun applyCommand(command: DeviceCommand) {
+    private suspend fun applyCommand(command: DeviceCommand): Boolean {
         Log.i(TAG, "Applying command: ${command.command}")
         when (command.command) {
             CommandType.START_AUDIO -> {
@@ -386,7 +399,7 @@ class MonitoringService : Service() {
                     ?.localParticipant
                     ?.getTrackPublication(Track.Source.CAMERA)
                     ?.track as? LocalVideoTrack
-                    ?: return
+                    ?: return true
                 cameraFacing = when (cameraFacing) {
                     CameraPosition.FRONT -> CameraPosition.BACK
                     CameraPosition.BACK -> CameraPosition.FRONT
@@ -419,6 +432,84 @@ class MonitoringService : Service() {
                 }
                 playVoiceMessage(messageId)
             }
+            CommandType.SHOW_TEXT_MESSAGE -> return queueTextMessage(command)
+        }
+        return true
+    }
+
+    /**
+     * Mostra il primo messaggio disponibile senza bloccare gli altri comandi remoti.
+     */
+    private suspend fun queueTextMessage(command: DeviceCommand): Boolean {
+        val commandId = command.id ?: return false
+        val messageId = requireNotNull(command.textMessageId) {
+            "Text message command without payload"
+        }
+        if (activeTextMessageCommandId == commandId) return false
+        if (activeTextMessageCommandId != null) return false
+        val textMessage = repository.fetchTextMessage(messageId)
+        if (TextMessagePolicy.isTerminal(textMessage.status)) {
+            return true
+        }
+        if (!textOverlayController.canDraw()) {
+            if (textMessage.status != TextMessageStatus.WAITING_PERMISSION) {
+                repository.updateTextMessageStatus(
+                    messageId,
+                    TextMessageStatus.WAITING_PERMISSION,
+                    "Autorizza “Mostra sopra altre app” sul trasmettitore.",
+                )
+            }
+            watchOverlayPermission()
+            Log.w(TAG, "Text message waiting for overlay permission")
+            return false
+        }
+        activeTextMessageCommandId = commandId
+        activeTextMessageId = messageId
+        val shown = textOverlayController.show(messageId, textMessage.body)
+        if (!shown) {
+            activeTextMessageCommandId = null
+            activeTextMessageId = null
+            return false
+        }
+        repository.updateTextMessageStatus(
+            messageId,
+            TextMessageStatus.DISPLAYING,
+        )
+        Log.i(TAG, "Text message overlay displayed")
+        return false
+    }
+
+    /** Riavvia il piano comandi appena Android concede il permesso overlay. */
+    private fun watchOverlayPermission() {
+        if (overlayPermissionRecoveryJob?.isActive == true) return
+        overlayPermissionRecoveryJob = scope.launch {
+            while (isActive && !textOverlayController.canDraw()) {
+                delay(OVERLAY_PERMISSION_CHECK_INTERVAL_MS)
+            }
+            if (isActive) {
+                recoverySignals.trySend(ControlPlaneRestart("overlay permission granted"))
+            }
+        }
+    }
+
+    /** Conferma messaggio e comando soltanto dopo la pressione della X. */
+    private fun onTextOverlayDismissed(messageId: String) {
+        val commandId = activeTextMessageCommandId ?: return
+        if (activeTextMessageId != messageId) return
+        scope.launch {
+            runCatching {
+                repository.updateTextMessageStatus(
+                    messageId,
+                    TextMessageStatus.DISMISSED,
+                )
+                repository.acknowledgeCommand(commandId)
+                appliedCommands += commandId
+            }.onFailure {
+                Log.e(TAG, "Text message dismissal acknowledgement failed", it)
+                recoverySignals.trySend(it)
+            }
+            activeTextMessageCommandId = null
+            activeTextMessageId = null
         }
     }
 
@@ -1034,6 +1125,7 @@ class MonitoringService : Service() {
         private const val TRACKING_EVALUATION_INTERVAL_MS = 1_000L
         private const val LOCATION_REGISTRATION_RETRY_MS = 15_000L
         private const val MEDIA_WATCHDOG_INTERVAL_MS = 5_000L
+        private const val OVERLAY_PERMISSION_CHECK_INTERVAL_MS = 2_000L
         private const val HEALTH_CHECK_INTERVAL_MS = 15 * 60 * 1_000L
         private const val SCREEN_TRACK_NAME = "findme-screen"
         private const val SCREEN_FRAME_RATE = 15

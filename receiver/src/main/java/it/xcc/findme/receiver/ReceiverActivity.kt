@@ -1,6 +1,8 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Activity principale del ricevitore e coordinamento delle funzioni remote.
+ * @modified 29.09.2026 - MDS | Aggiunto invio e feedback dei messaggi testuali.
+ * @modified 29.09.2026 - MDS | Aggiunta verifica distanza con GPS locale e fullscreen.
  * @modified 29.09.2026 - MDS | Allineati switch e lifecycle al tracking persistente server-driven.
  * @modified 23.09.2026 - MDS | Forzato il portrait in uscita e aggiunto feedback cambio camera.
  * @modified 23.09.2026 - MDS | Mantenuto il tracking rapido durante il blocco schermo.
@@ -67,6 +69,7 @@ import it.xcc.findme.core.CameraSwitchFeedback
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.ConnectionRecoveryPolicy
 import it.xcc.findme.core.DeviceIdentity
+import it.xcc.findme.core.DeviceLocation
 import it.xcc.findme.core.DeviceRole
 import it.xcc.findme.core.FindMeRepository
 import it.xcc.findme.core.LocationHistoryDeletionPolicy
@@ -81,6 +84,8 @@ import it.xcc.findme.core.ReceiverPowerPolicy
 import it.xcc.findme.core.ReceiverTrackingSettings
 import it.xcc.findme.core.TrackingConfigResolver
 import it.xcc.findme.core.TrackingSettingsUpdate
+import it.xcc.findme.core.TextMessagePolicy
+import it.xcc.findme.core.TextMessageStatus
 import it.xcc.findme.core.VoiceMessagePolicy
 import it.xcc.findme.core.VoiceMessageStatus
 import it.xcc.findme.core.VoiceMessageVolume
@@ -121,6 +126,10 @@ class ReceiverActivity : ComponentActivity() {
     private var selectedTab by mutableStateOf(DeviceTab.POSITION)
     private var showSettings by mutableStateOf(false)
     private var historyDeviceId by mutableStateOf<String?>(null)
+    private var distanceDeviceId by mutableStateOf<String?>(null)
+    private var distanceFullscreenActive by mutableStateOf(false)
+    private var receiverLocation by mutableStateOf<DeviceLocation?>(null)
+    private var receiverGpsAvailable by mutableStateOf(false)
     private var fullscreenDeviceId by mutableStateOf<String?>(null)
     private var screenFullscreenDeviceId by mutableStateOf<String?>(null)
     private var historyFullscreenActive by mutableStateOf(false)
@@ -157,6 +166,9 @@ class ReceiverActivity : ComponentActivity() {
     )
     private var voiceMessageVolume by mutableStateOf(VoiceMessageVolume.MEDIUM)
     private var voiceMessageFeedback by mutableStateOf("")
+    private var textMessageDraft by mutableStateOf("")
+    private var textMessageFeedback by mutableStateOf("")
+    private var textMessageSending by mutableStateOf(false)
     private lateinit var voiceMessageRecorder: VoiceMessageRecorder
     private var voiceMessageDraftFile: File? = null
     private var pendingVoiceRecordDeviceId: String? = null
@@ -168,6 +180,7 @@ class ReceiverActivity : ComponentActivity() {
     private var screenRecordingTimerJob: Job? = null
     private var voiceMessageTimerJob: Job? = null
     private var voiceMessageDeliveryJob: Job? = null
+    private var textMessageDeliveryJob: Job? = null
     private var mediaCommandFeedback by mutableStateOf<Map<MediaStreamKind, MediaCommandFeedback>>(
         emptyMap(),
     )
@@ -185,6 +198,7 @@ class ReceiverActivity : ComponentActivity() {
     private var pushNotificationsInitialized = false
     private var onlineClockTick by mutableStateOf(System.currentTimeMillis())
     private lateinit var connectivityManager: ConnectivityManager
+    private lateinit var receiverLocationController: ReceiverLocationController
     private val recoverySignals = Channel<Throwable>(Channel.CONFLATED)
     @Volatile
     private var networkWasLost = false
@@ -198,6 +212,17 @@ class ReceiverActivity : ComponentActivity() {
             startVoiceMessageRecording()
         } else {
             voiceMessageFeedback = "Permesso microfono necessario per registrare."
+        }
+    }
+
+    private val locationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            startDistanceLocationIfAllowed()
+        } else {
+            receiverGpsAvailable = false
+            message = "Concedi la posizione al ricevitore per verificare la distanza."
         }
     }
 
@@ -220,6 +245,12 @@ class ReceiverActivity : ComponentActivity() {
         identity = DeviceIdentity(this)
         voiceMessageRecorder = VoiceMessageRecorder(this)
         connectivityManager = getSystemService(ConnectivityManager::class.java)
+        receiverLocationController = ReceiverLocationController(
+            context = this,
+            deviceId = { identity.id },
+            onLocation = { receiverLocation = it },
+            onAvailabilityChanged = { receiverGpsAvailable = it },
+        )
         powerManager = getSystemService(PowerManager::class.java)
         mediaWakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -263,12 +294,14 @@ class ReceiverActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         isForeground = true
+        startDistanceLocationIfAllowed()
         updateMediaPowerProtection()
         reconcileMediaConnection()
     }
 
     override fun onStop() {
         isForeground = false
+        if (::receiverLocationController.isInitialized) receiverLocationController.stop()
         if (ReceiverPowerPolicy.shouldKeepSessionWhenStopped(
                 screenInteractive = powerManager.isInteractive,
                 mediaActive = shouldMaintainMediaSession(),
@@ -289,7 +322,10 @@ class ReceiverActivity : ComponentActivity() {
         if (fullscreenDeviceId != null) closeFullscreenMap()
         if (screenFullscreenDeviceId != null) closeScreenFullscreen()
         if (historyFullscreenActive) setHistoryFullscreen(false)
+        if (distanceFullscreenActive) setDistanceFullscreen(false)
+        if (::receiverLocationController.isInitialized) receiverLocationController.stop()
         voiceMessageDeliveryJob?.cancel()
+        textMessageDeliveryJob?.cancel()
         mediaCommandTimeoutJobs.values.forEach { it.cancel() }
         mediaCommandTimeoutJobs.clear()
         cameraSwitchTimeoutJob?.cancel()
@@ -316,6 +352,9 @@ class ReceiverActivity : ComponentActivity() {
             devices.firstOrNull { it.device.id == id }
         }
         val historyDevice = historyDeviceId?.let { id ->
+            devices.firstOrNull { it.device.id == id }
+        }
+        val distanceDevice = distanceDeviceId?.let { id ->
             devices.firstOrNull { it.device.id == id }
         }
         val fullscreenDevice = fullscreenDeviceId?.let { id ->
@@ -360,12 +399,70 @@ class ReceiverActivity : ComponentActivity() {
                     closeFullscreenMap()
                     historyDeviceId = fullscreenDevice.device.id
                 },
+                onVerifyDistance = {
+                    closeFullscreenMap()
+                    openDistanceVerification(fullscreenDevice.device.id)
+                },
                 onExit = ::closeFullscreenMap,
             )
             return
         }
         if (fullscreenDeviceId != null) {
             LaunchedEffect(fullscreenDeviceId) { closeFullscreenMap() }
+        }
+        if (distanceDevice != null) {
+            val locationIntervalSec = if (isFastTrackingActive(distanceDevice)) {
+                trackingSettings.onlineLocationIntervalSec
+            } else {
+                trackingSettings.offlineLocationIntervalSec
+            }
+            LaunchedEffect(distanceDevice.device.id, locationIntervalSec) {
+                startDistanceLocationIfAllowed(locationIntervalSec)
+            }
+            DisposableEffect(distanceDevice.device.id) {
+                onDispose {
+                    receiverLocationController.stop()
+                    receiverLocation = null
+                }
+            }
+            BackHandler {
+                if (distanceFullscreenActive) {
+                    setDistanceFullscreen(false)
+                } else {
+                    closeDistanceVerification()
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (distanceFullscreenActive) Modifier else Modifier.padding(16.dp),
+                    ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                if (!distanceFullscreenActive) {
+                    Text(
+                        "FindMe",
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.headlineLarge,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                DistanceVerificationScreen(
+                    device = distanceDevice,
+                    receiverLocation = receiverLocation,
+                    gpsAvailable = receiverGpsAvailable,
+                    fullscreen = distanceFullscreenActive,
+                    onBack = ::closeDistanceVerification,
+                    onFullscreenChange = ::setDistanceFullscreen,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            return
+        }
+        if (distanceDeviceId != null) {
+            LaunchedEffect(distanceDeviceId) { closeDistanceVerification() }
         }
         if (historyDevice != null) {
             BackHandler(enabled = !historyFullscreenActive) {
@@ -420,10 +517,16 @@ class ReceiverActivity : ComponentActivity() {
         if (historyFullscreenActive) {
             LaunchedEffect(historyDeviceId) { setHistoryFullscreen(false) }
         }
-        BackHandler(enabled = showSettings || historyDeviceId != null || selected != null) {
+        BackHandler(
+            enabled = showSettings ||
+                historyDeviceId != null ||
+                distanceDeviceId != null ||
+                selected != null,
+        ) {
             when {
                 showSettings -> showSettings = false
                 historyDeviceId != null -> historyDeviceId = null
+                distanceDeviceId != null -> closeDistanceVerification()
                 else -> closeDetail()
             }
         }
@@ -519,6 +622,9 @@ class ReceiverActivity : ComponentActivity() {
                             openScreenFullscreen(selected.device.id)
                         },
                         onOpenHistory = { historyDeviceId = selected.device.id },
+                        onVerifyDistance = {
+                            openDistanceVerification(selected.device.id)
+                        },
                         onTakePhoto = { takeVideoSnapshot(selected) },
                         videoTrackAvailable = cameraTrack != null,
                         audioTrackAvailable = audioTrack != null,
@@ -560,6 +666,13 @@ class ReceiverActivity : ComponentActivity() {
                                 startScreenRecording(selected)
                             }
                         },
+                        textMessageDraft = textMessageDraft,
+                        textMessageFeedback = textMessageFeedback,
+                        textMessageSending = textMessageSending,
+                        onTextMessageDraftChange = {
+                            textMessageDraft = it.take(TextMessagePolicy.MAX_LENGTH)
+                        },
+                        onTextMessageSend = { sendTextMessage(selected) },
                         snapshotPreview = snapshotPreview,
                         onSnapshotAnimationFinished = ::clearSnapshotAnimation,
                         videoContent = {
@@ -1240,6 +1353,57 @@ class ReceiverActivity : ComponentActivity() {
         enterImmersiveLandscape()
     }
 
+    /**
+     * Apre la verifica distanza e richiede il GPS del ricevitore quando necessario.
+     */
+    private fun openDistanceVerification(deviceId: String) {
+        distanceDeviceId = deviceId
+        receiverLocation = null
+        message = ""
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            startDistanceLocationIfAllowed()
+        } else {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    /** Chiude la verifica distanza e arresta il GPS locale. */
+    private fun closeDistanceVerification() {
+        if (distanceFullscreenActive) setDistanceFullscreen(false)
+        distanceDeviceId = null
+        receiverLocationController.stop()
+        receiverLocation = null
+    }
+
+    /**
+     * Avvia il GPS locale con la frequenza offline o online già selezionata.
+     */
+    private fun startDistanceLocationIfAllowed(intervalSec: Int? = null) {
+        val deviceId = distanceDeviceId ?: return
+        if (!isForeground ||
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val device = devices.firstOrNull { it.device.id == deviceId } ?: return
+        val effectiveInterval = intervalSec ?: if (isFastTrackingActive(device)) {
+            trackingSettings.onlineLocationIntervalSec
+        } else {
+            trackingSettings.offlineLocationIntervalSec
+        }
+        receiverLocationController.start(effectiveInterval)
+    }
+
+    /** Commuta la mappa distanza tra vista normale e fullscreen landscape. */
+    private fun setDistanceFullscreen(enabled: Boolean) {
+        if (distanceFullscreenActive == enabled) return
+        distanceFullscreenActive = enabled
+        if (enabled) enterImmersiveLandscape() else exitImmersiveLandscape()
+    }
+
     private fun closeFullscreenMap() {
         if (fullscreenDeviceId == null) return
         fullscreenDeviceId = null
@@ -1802,6 +1966,61 @@ class ReceiverActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Invia un messaggio testuale persistente e ne segue lo stato di consegna.
+     */
+    private fun sendTextMessage(device: MonitoredDevice) {
+        val normalized = runCatching {
+            TextMessagePolicy.normalize(textMessageDraft)
+        }.getOrElse {
+            textMessageFeedback = it.message ?: "Messaggio non valido."
+            return
+        }
+        textMessageSending = true
+        textMessageFeedback = ""
+        textMessageDeliveryJob?.cancel()
+        textMessageDeliveryJob = lifecycleScope.launch {
+            val sent = runCatching {
+                repository!!.sendTextMessage(
+                    receiverId = identity.id,
+                    transmitterId = device.device.id,
+                    messageId = UUID.randomUUID().toString(),
+                    body = normalized,
+                )
+            }.onFailure {
+                Log.e(TAG, "Text message send failed", it)
+                textMessageFeedback = "Invio non riuscito. Puoi riprovare."
+            }.getOrNull()
+            textMessageSending = false
+            if (sent == null) return@launch
+            textMessageDraft = ""
+            textMessageFeedback = "Messaggio inviato, in attesa del trasmettitore."
+            repeat(TEXT_MESSAGE_STATUS_POLL_ATTEMPTS) {
+                delay(TEXT_MESSAGE_STATUS_POLL_INTERVAL_MS)
+                val current = runCatching {
+                    repository!!.fetchTextMessage(sent.id)
+                }.getOrNull() ?: return@repeat
+                textMessageFeedback = when (current.status) {
+                    TextMessageStatus.PENDING ->
+                        "Messaggio in attesa del trasmettitore."
+                    TextMessageStatus.WAITING_PERMISSION ->
+                        "Sul trasmettitore manca il permesso “Mostra sopra altre app”."
+                    TextMessageStatus.DISPLAYING ->
+                        "Messaggio visualizzato sul trasmettitore."
+                    TextMessageStatus.DISMISSED ->
+                        "Messaggio letto e chiuso."
+                    TextMessageStatus.FAILED ->
+                        current.errorMessage ?: "Visualizzazione non riuscita."
+                }
+                if (current.status == TextMessageStatus.DISMISSED ||
+                    current.status == TextMessageStatus.FAILED
+                ) {
+                    return@launch
+                }
+            }
+        }
+    }
+
     private fun reconcileMediaConnection() {
         if (!isForeground && !shouldMaintainMediaSession()) {
             disconnectMedia()
@@ -2100,6 +2319,8 @@ class ReceiverActivity : ComponentActivity() {
         const val TRACKING_LEASE_RENEW_INTERVAL_MS = 20_000L
         const val RECEIVER_CHANNEL_RENEWAL_INTERVAL_MS = 15 * 60 * 1_000L
         const val ONLINE_CLOCK_INTERVAL_MS = 10_000L
+        const val TEXT_MESSAGE_STATUS_POLL_INTERVAL_MS = 2_000L
+        const val TEXT_MESSAGE_STATUS_POLL_ATTEMPTS = 900
     }
 
     private class DataPlaneRestart(reason: String) : RuntimeException(reason)

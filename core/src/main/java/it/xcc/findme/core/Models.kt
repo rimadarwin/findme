@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Modelli serializzabili condivisi tra ricevitore e trasmettitore.
+ * @modified 29.09.2026 - MDS | Aggiunti comando e stato dei messaggi testuali.
  * @modified 29.09.2026 - MDS | Esposto lo stato persistente di tracking e retry geofence.
  * @modified 23.09.2026 - MDS | Impostato a cinque secondi il polling comandi predefinito.
  */
@@ -68,6 +69,7 @@ enum class CommandType {
     @SerialName("start_monitoring") START_MONITORING,
     @SerialName("stop_monitoring") STOP_MONITORING,
     @SerialName("play_voice_message") PLAY_VOICE_MESSAGE,
+    @SerialName("show_text_message") SHOW_TEXT_MESSAGE,
 }
 
 @Serializable
@@ -76,6 +78,7 @@ data class DeviceCommand(
     @SerialName("device_id") val deviceId: String,
     val command: CommandType,
     @SerialName("voice_message_id") val voiceMessageId: String? = null,
+    @SerialName("text_message_id") val textMessageId: String? = null,
     val status: String = "pending",
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("applied_at") val appliedAt: String? = null,
@@ -110,6 +113,28 @@ data class VoiceMessage(
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("started_at") val startedAt: String? = null,
     @SerialName("completed_at") val completedAt: String? = null,
+)
+
+@Serializable
+enum class TextMessageStatus {
+    @SerialName("pending") PENDING,
+    @SerialName("waiting_permission") WAITING_PERMISSION,
+    @SerialName("displaying") DISPLAYING,
+    @SerialName("dismissed") DISMISSED,
+    @SerialName("failed") FAILED,
+}
+
+@Serializable
+data class TextMessage(
+    val id: String,
+    @SerialName("receiver_id") val receiverId: String,
+    @SerialName("transmitter_id") val transmitterId: String,
+    val body: String,
+    val status: TextMessageStatus = TextMessageStatus.PENDING,
+    @SerialName("error_message") val errorMessage: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("displayed_at") val displayedAt: String? = null,
+    @SerialName("dismissed_at") val dismissedAt: String? = null,
 )
 
 @Serializable

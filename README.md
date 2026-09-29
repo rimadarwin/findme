@@ -2,6 +2,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Presentazione, build e uso essenziale del progetto FindMe.
+ * @modified 29.09.2026 - MDS | Documentati verifica distanza e messaggi in primo piano.
  * @modified 29.09.2026 - MDS | Documentato l'avviso area one-shot con tracking persistente.
  */
 -->
@@ -60,7 +61,7 @@ APK:
 L’ingranaggio nella home del ricevitore configura per tutti i trasmettitori:
 
 - posizione in background: 30/60/90/120 secondi;
-- posizione rapida: 5/10/15/20 secondi;
+- posizione rapida: 2/5/10/15/20 secondi;
 - storico: 1x/2x/3x e salvataggio solo in movimento;
 - heartbeat: 30/60/90/120 secondi.
 - controllo comandi di sicurezza: 30/60/120/300 secondi.
@@ -117,12 +118,19 @@ rimane pronta, mentre LiveKit viene collegato solo quando lo switch remoto è ON
 L’audio interno delle applicazioni non viene acquisito: resta disponibile lo
 stream separato del microfono.
 
+Il tab **Messaggio** invia fino a 500 caratteri anche a un trasmettitore
+temporaneamente offline. Il testo compare al centro sopra le altre app e resta
+visibile finché viene chiuso con la X; il trasmettitore deve autorizzare una
+volta **Messaggi in primo piano**.
+
 Dal tab Posizione è inoltre possibile:
 
 - aprire la mappa in modalità immersiva orizzontale, mantenendo coordinate e
   controlli in un pannello laterale;
 - aprire anche lo storico in modalità immersiva, con percorso a sinistra e
   soltanto timeline e dettaglio del punto selezionato nel pannello destro;
+- confrontare su mappa le posizioni di ricevitore e trasmettitore, con linea
+  tratteggiata, coordinate, distanza in linea d’aria e fullscreen;
 - attivare un avviso area centrato sulla posizione corrente, con raggio
   50/100/250/500/1000 metri;
 - ricevere una notifica FCM quando il trasmettitore passa dall’interno

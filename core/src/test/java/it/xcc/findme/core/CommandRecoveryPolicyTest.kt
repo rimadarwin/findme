@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Verifica compattazione e passthrough dei comandi persistenti.
+ * @modified 29.09.2026 - MDS | Coperti i messaggi testuali non compattabili.
+ */
 package it.xcc.findme.core
 
 import org.junit.Assert.assertEquals
@@ -16,6 +21,8 @@ class CommandRecoveryPolicyTest {
                 command(6, CommandType.STOP_AUDIO),
                 command(7, CommandType.SWITCH_CAMERA),
                 command(8, CommandType.PLAY_VOICE_MESSAGE),
+                command(9, CommandType.SHOW_TEXT_MESSAGE),
+                command(10, CommandType.SHOW_TEXT_MESSAGE),
             ),
         )
 
@@ -26,6 +33,8 @@ class CommandRecoveryPolicyTest {
                 6L to CommandType.STOP_AUDIO,
                 7L to CommandType.SWITCH_CAMERA,
                 8L to CommandType.PLAY_VOICE_MESSAGE,
+                9L to CommandType.SHOW_TEXT_MESSAGE,
+                10L to CommandType.SHOW_TEXT_MESSAGE,
             ),
             compacted.map { it.id to it.command },
         )

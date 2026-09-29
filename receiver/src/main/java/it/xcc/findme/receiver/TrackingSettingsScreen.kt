@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Schermata delle impostazioni di tracking e recupero connessione.
+ * @modified 29.09.2026 - MDS | Aggiunta la frequenza online di due secondi.
  * @modified 23.09.2026 - MDS | Aggiunte frequenze rapide per il recupero dei comandi.
  */
 package it.xcc.findme.receiver
@@ -92,7 +93,7 @@ fun TrackingSettingsScreen(
         SettingOptions(
             title = "Frequenza online",
             description = "Tempo di interrogazione quando attivi l’osservazione rapida.",
-            values = listOf(5, 10, 15, 20),
+            values = listOf(2, 5, 10, 15, 20),
             selected = settings.onlineLocationIntervalSec,
             label = { "$it s" },
             onSelected = {

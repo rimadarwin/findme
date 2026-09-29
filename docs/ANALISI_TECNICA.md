@@ -2,6 +2,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Analisi tecnica e guida di riproduzione dell'architettura FindMe.
+ * @modified 29.09.2026 - MDS | Documentati distanza TX-RX e messaggi overlay persistenti.
  * @modified 29.09.2026 - MDS | Documentati transazione di uscita area e retry FCM persistente.
  * @modified 24.09.2026 - MDS | Documentata la risoluzione multi-tenant dei provider LiveKit.
  */
@@ -262,7 +263,8 @@ Applicare tutte le migrazioni in ordine lessicografico.
 - `switch_camera`;
 - `start_screen`, `stop_screen`;
 - `start_monitoring`, `stop_monitoring`;
-- `play_voice_message`.
+- `play_voice_message`;
+- `show_text_message`.
 
 `voice_message_volume`:
 
@@ -372,7 +374,8 @@ lasciare nel DB uno stream erroneamente ON.
 - enum comando;
 - stato `pending/applied/failed`;
 - timestamp creazione/applicazione;
-- eventuale `voice_message_id`.
+- eventuale `voice_message_id`;
+- eventuale `text_message_id`.
 
 L’indice parziale sui pending accelera il recupero. Il constraint finale
 richiede `voice_message_id` soltanto per `play_voice_message`.
@@ -402,6 +405,14 @@ Il bucket `voice-messages`:
 `receiver_push_tokens` associa token/installazione al ricevitore e consente
 gestione soltanto al proprietario via RLS.
 
+### 8.10 Messaggi testuali
+
+`text_messages` conserva UUID, ricevitore, trasmettitore, corpo normalizzato
+1–500 caratteri, errore e timestamp. Gli stati sono `pending`,
+`waiting_permission`, `displaying`, `dismissed`, `failed`. La RPC
+`create_text_message` verifica ownership e pairing e crea nello stesso commit
+record e comando. Il comando resta pending finché l’utente chiude l’overlay.
+
 ## 9. Migrazioni e ordine obbligatorio
 
 1. `202609160001_findme.sql`: schema base, RLS, Realtime e retention.
@@ -426,6 +437,9 @@ gestione soltanto al proprietario via RLS.
 18. `202609240001_receiver_service_configs.sql`: servizi per ricevitore.
 19. `202609290001_geofence_exit_tracking.sql`: uscita area atomica, tracking
     persistente e coda retry FCM.
+20. `202609290002_online_interval_2s.sql`: frequenza online minima di 2 secondi.
+21. `202609290003_text_messages_schema.sql`: messaggi testuali, RLS e comando.
+22. `202609290004_text_messages_rpc.sql`: creazione atomica e retention.
 
 Avvertenza PostgreSQL: l’uso di un nuovo valore enum nella stessa transazione
 che lo aggiunge può fallire. Mantenere separate le migrazioni schema e RPC,
@@ -928,6 +942,21 @@ Il rendering storico usa soltanto il prefisso della route fino allo slider.
 
 Le view MapLibre dentro Compose devono gestire correttamente intercettazione
 touch: il parent scroll non deve sottrarre gesture a pan/zoom.
+
+La verifica distanza usa il GPS del receiver soltanto in foreground e non lo
+pubblica. `DistanceMap` riceve il punto TX da Realtime, disegna il punto RX
+locale, una `LineLayer` tratteggiata e inquadra entrambi con `LatLngBounds`.
+La distanza usa lo stesso calcolo Haversine del resolver tracking.
+
+## 23.1 Overlay messaggi testuali
+
+`TextOverlayController` usa `TYPE_APPLICATION_OVERLAY`, pannello centrale
+all’85% dello schermo, bordo neon e autosize. `SYSTEM_ALERT_WINDOW` è un
+permesso speciale: Device Owner non lo concede automaticamente. Se manca, il
+messaggio passa a `waiting_permission`, il comando non viene confermato e il
+servizio sorveglia l’autorizzazione. Una volta concessa, il piano comandi viene
+riavviato; soltanto la X imposta `dismissed` e `applied`. L’overlay non blocca
+la gestione degli altri comandi e la coda mantiene l’ordine di creazione.
 
 ## 24. Power management
 

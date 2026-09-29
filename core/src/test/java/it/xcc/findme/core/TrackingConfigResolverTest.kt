@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Verifica la risoluzione delle frequenze di tracking e le policy correlate.
+ * @modified 29.09.2026 - MDS | Coperti intervallo online 2 s e distanza nota.
  * @modified 29.09.2026 - MDS | Coperti tracking persistente e indipendenza dall'avviso area.
  */
 package it.xcc.findme.core
@@ -49,6 +50,32 @@ class TrackingConfigResolverTest {
         assertTrue(config.liveHistory)
         assertEquals(10, config.locationIntervalSec)
         assertEquals(20, config.historyIntervalSec)
+    }
+
+    @Test
+    fun `two second online interval is preserved during live tracking`() {
+        val relationship = ReceiverTransmitter(
+            receiverId = "receiver",
+            transmitterId = "transmitter",
+            liveTrackingPersistent = true,
+        )
+
+        val config = TrackingConfigResolver.resolve(
+            settings.copy(onlineLocationIntervalSec = 2),
+            relationship,
+        )
+
+        assertEquals(2, config.locationIntervalSec)
+    }
+
+    @Test
+    fun `distance calculation returns approximately one kilometer`() {
+        val from = point(41.800000, 12.600000, 5f)
+        val to = point(41.809000, 12.600000, 5f)
+
+        val distance = TrackingConfigResolver.distanceMeters(from, to)
+
+        assertTrue(distance in 995.0..1_010.0)
     }
 
     @Test

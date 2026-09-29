@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Repository condiviso per Supabase, tracking, comandi e contenuti multimediali.
+ * @modified 29.09.2026 - MDS | Aggiunta consegna persistente dei messaggi testuali.
  * @modified 29.09.2026 - MDS | Distinti lease UI, tracking persistente e disattivazione manuale.
  * @modified 23.09.2026 - MDS | Aggiunto polling di recovery dello stato tracking.
  */
@@ -468,6 +469,59 @@ class FindMeRepository(
         }.getOrElse { error ->
             runCatching { bucket.delete(path) }
             throw error
+        }
+    }
+
+    /**
+     * Crea atomicamente un messaggio testuale e il relativo comando remoto.
+     */
+    suspend fun sendTextMessage(
+        receiverId: String,
+        transmitterId: String,
+        messageId: String,
+        body: String,
+    ): TextMessage {
+        val normalized = TextMessagePolicy.normalize(body)
+        ensureAuthenticated()
+        return client.postgrest.rpc(
+            function = "create_text_message",
+            parameters = buildJsonObject {
+                put("target_receiver_id", receiverId)
+                put("target_transmitter_id", transmitterId)
+                put("target_message_id", messageId)
+                put("requested_body", normalized)
+            },
+        ).decodeSingle()
+    }
+
+    /** Recupera lo stato corrente di un messaggio testuale. */
+    suspend fun fetchTextMessage(messageId: String): TextMessage {
+        ensureAuthenticated()
+        return client.from("text_messages").select {
+            filter { eq("id", messageId) }
+            limit(1)
+        }.decodeSingle()
+    }
+
+    /** Aggiorna lo stato di visualizzazione del messaggio sul trasmettitore. */
+    suspend fun updateTextMessageStatus(
+        messageId: String,
+        status: TextMessageStatus,
+        errorMessage: String? = null,
+    ) {
+        ensureAuthenticated()
+        client.from("text_messages").update({
+            set("status", status.name.lowercase())
+            set("error_message", errorMessage?.take(300))
+            when (status) {
+                TextMessageStatus.DISPLAYING ->
+                    set("displayed_at", Instant.now().toString())
+                TextMessageStatus.DISMISSED ->
+                    set("dismissed_at", Instant.now().toString())
+                else -> Unit
+            }
+        }) {
+            filter { eq("id", messageId) }
         }
     }
 

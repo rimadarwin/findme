@@ -1,6 +1,13 @@
+<!--
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Manuale operativo dell'app FindMe Trasmettitore.
+ * @modified 29.09.2026 - MDS | Documentati permesso e overlay dei messaggi testuali.
+ */
+-->
 # FindMe — Manuale utente Trasmettitore
 
-**Versione app:** 0.5.0 · **Manuale:** settembre 2025
+**Versione app:** 0.5.0 · **Manuale:** settembre 2026
 
 | Documento correlato | Collegamento |
 | --- | --- |
@@ -16,6 +23,7 @@ monitorare. Quando il monitoraggio è attivo, il telefono:
 - rende disponibili, solo su richiesta del ricevitore, fotocamere, microfono e
   schermo;
 - può riprodurre messaggi vocali inviati dal ricevitore;
+- può mostrare messaggi testuali in primo piano inviati dal ricevitore;
 - tenta automaticamente di recuperare rete, sessione e collegamenti interrotti.
 
 Il telefono trasmettitore deve appartenere al proprietario del sistema e deve
@@ -190,6 +198,17 @@ servizio in background e può non essere eliminabile.
 Disabilitare le notifiche non rende invisibile il monitoraggio: Android può
 continuare a mostrare indicatori privacy e informazioni sul servizio.
 
+### 5.7 Messaggi in primo piano
+
+Attivare lo switch **Messaggi in primo piano** e consentire a FindMe di
+comparire sopra le altre app nella schermata Android. È necessario per
+ricevere i messaggi testuali del ricevitore.
+
+![Permesso messaggi in primo piano](manuale/assets/transmitter-04-overlay-permission.png)
+
+Se il permesso manca, il messaggio resta in attesa. Dopo averlo concesso,
+FindMe riprende automaticamente la consegna senza richiedere un nuovo invio.
+
 ## 6. Uso quotidiano
 
 Una volta completata la configurazione:
@@ -216,6 +235,15 @@ arriva un messaggio:
 
 Se il telefono è offline, il messaggio resta in attesa e viene consegnato al
 ritorno della connessione.
+
+### 7.1 Messaggi testuali ricevuti
+
+Un messaggio testuale compare al centro dello schermo, sopra le applicazioni,
+con caratteri adattati alla lunghezza e una cornice blu neon. Premere la X per
+chiuderlo e confermarne la lettura. Più messaggi vengono mostrati uno alla
+volta, nell’ordine di arrivo.
+
+![Messaggio testuale in primo piano](manuale/assets/transmitter-05-messaggio-overlay.png)
 
 ## 8. Riavvio, standby e recupero automatico
 

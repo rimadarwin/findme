@@ -2,6 +2,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Specifica funzionale completa del prodotto FindMe.
+ * @modified 29.09.2026 - MDS | Aggiunti verifica distanza e messaggi testuali overlay.
  * @modified 29.09.2026 - MDS | Descritto l'avviso area one-shot con controlli rapidi persistenti.
  */
 -->
@@ -363,6 +364,17 @@ Un errore FCM non annulla l’evento: la consegna viene ritentata con backoff.
 
 Il link **Consulta storico posizioni** apre la pagina dedicata.
 
+#### Verifica distanza
+
+Il link **Verifica distanza** apre una vista con posizione trasmettitore blu,
+posizione ricevitore rossa e linea tratteggiata fra i due punti. Sopra la
+mappa sono mostrate coordinate e accuratezza di entrambi; sotto compare la
+distanza Haversine in linea d’aria, espressa in metri. Il GPS del ricevitore
+resta locale e viene usato soltanto mentre la vista è aperta. L’intervallo
+segue lo stato corrente: frequenza online con **Aggiornamento rapido** ON,
+frequenza offline con lo switch OFF. La mappa dispone di fullscreen landscape
+e ritorno alla vista normale.
+
 ### 7.3 Fullscreen posizione
 
 La mappa fullscreen:
@@ -518,6 +530,17 @@ La modalità fullscreen:
 La registrazione schermo produce MP4 H.264 in `Movies/FindMe`, separato dalla
 registrazione camera e con lo stesso limite di 30 minuti.
 
+### 7.9 Tab Messaggio
+
+Il quinto tab contiene un campo multilinea fino a 500 caratteri, contatore,
+pulsante **Invia** e stato di consegna. La RPC crea atomicamente messaggio e
+comando, quindi l’invio resta pendente anche col trasmettitore offline. Sul
+trasmettitore il testo appare in una cornice blu neon sopra le altre app, con
+font adattivo e X. Senza permesso overlay lo stato diventa
+`waiting_permission` e resta pendente; dopo l’autorizzazione viene mostrato.
+Soltanto la X imposta `dismissed` e conferma il comando. Più messaggi vengono
+visualizzati in ordine, uno alla volta.
+
 ## 8. Storico posizioni
 
 ### 8.1 Apertura e query iniziale
@@ -599,7 +622,7 @@ associati.
 Opzioni:
 
 - **Frequenza offline**: 30, 60, 90, 120 secondi.
-- **Frequenza online**: 5, 10, 15, 20 secondi.
+- **Frequenza online**: 2, 5, 10, 15, 20 secondi.
 - **Frequenza storico**: 1x, 2x, 3x.
 - **Solo movimento**: salva soltanto dopo spostamento significativo.
 - **Raggio avviso area**: 50, 100, 250, 500, 1000 metri.

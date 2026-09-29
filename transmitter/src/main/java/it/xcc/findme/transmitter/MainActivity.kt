@@ -1,3 +1,8 @@
+/**
+ * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @description Dashboard, accesso e autorizzazioni del trasmettitore.
+ * @modified 29.09.2026 - MDS | Aggiunta autorizzazione messaggi sopra altre app.
+ */
 package it.xcc.findme.transmitter
 
 import android.Manifest
@@ -92,6 +97,7 @@ class MainActivity : ComponentActivity() {
     private var monitoringPermissionsGranted by mutableStateOf(false)
     private var backgroundLocationGranted by mutableStateOf(false)
     private var batteryOptimizationDisabled by mutableStateOf(false)
+    private var overlayPermissionGranted by mutableStateOf(false)
     private var accessQuestion by mutableStateOf<String?>(null)
     private var accessGranted by mutableStateOf(false)
     private var accessLoading by mutableStateOf(false)
@@ -480,6 +486,13 @@ class MainActivity : ComponentActivity() {
                         if (it) requestNotificationPermission() else openNotificationSettings()
                     },
                 )
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                PermissionSwitch(
+                    title = "Messaggi in primo piano",
+                    subtitle = "Mostra i messaggi del ricevitore sopra le altre app",
+                    checked = overlayPermissionGranted,
+                    onChange = { openOverlaySettings() },
+                )
             }
         }
     }
@@ -651,6 +664,17 @@ class MainActivity : ComponentActivity() {
         batteryOptimizationDisabled =
             getSystemService(PowerManager::class.java)
                 .isIgnoringBatteryOptimizations(packageName)
+        overlayPermissionGranted = Settings.canDrawOverlays(this)
+    }
+
+    /** Apre la pagina Android che autorizza gli overlay dell'app. */
+    private fun openOverlaySettings() {
+        startActivity(
+            Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            ),
+        )
     }
 
     private fun openAppSettings() {

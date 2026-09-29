@@ -1,6 +1,7 @@
 /**
  * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
  * @description Stato tecnico e indicazioni di passaggio del progetto FindMe.
+ * @modified 29.09.2026 - MDS | Documentati distanza TX-RX e messaggi overlay.
  * @modified 29.09.2026 - MDS | Documentata l'implementazione dell'alert area persistente.
  * @modified 23.09.2026 - MDS | Documentata la persistenza del tracking rapido al blocco.
  * @modified 23.09.2026 - MDS | Documentato il feedback dei comandi multimediali.
@@ -95,6 +96,10 @@ Evoluzioni implementate e validate sui dispositivi reali:
   proprietaria “Nessuna restrizione”.
 - cancellazione selettiva dello storico dalle configurazioni del ricevitore,
   con selezione multipla, doppia conferma e RPC autorizzata lato database.
+- verifica distanza con GPS receiver locale, marker TX/RX, linea tratteggiata,
+  Haversine e fullscreen landscape; frequenza online minima 2 secondi.
+- messaggi testuali persistenti fino a 500 caratteri, quinto tab receiver,
+  coda offline e overlay neon sopra le app, confermato soltanto dalla X.
 
 Le migrazioni `202609160005_media_state.sql`,
 `202609170001_receiver_device_alias.sql` e
@@ -110,7 +115,10 @@ Le migrazioni `202609160005_media_state.sql`,
 `202609230001_fast_command_recovery.sql`,
 `202609230002_update_receiver_access_question.sql`,
 `202609240001_receiver_service_configs.sql` e
-`202609290001_geofence_exit_tracking.sql` devono essere applicate prima di
+`202609290001_geofence_exit_tracking.sql`,
+`202609290002_online_interval_2s.sql`,
+`202609290003_text_messages_schema.sql` e
+`202609290004_text_messages_rpc.sql` devono essere applicate prima di
 installare le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano
