@@ -1,6 +1,7 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Modelli serializzabili condivisi tra ricevitore e trasmettitore.
+ * @modified 01.10.2026 - Infinity | Aggiunta configurazione accesso del ricevitore.
  * @modified 29.09.2026 - MDS | Aggiunti comando e stato dei messaggi testuali.
  * @modified 29.09.2026 - MDS | Esposto lo stato persistente di tracking e retry geofence.
  * @modified 23.09.2026 - MDS | Impostato a cinque secondi il polling comandi predefinito.
@@ -156,6 +157,13 @@ data class ReceiverProfile(
     @SerialName("owner_id") val ownerId: String,
     val name: String,
     @SerialName("pairing_code") val pairingCode: String? = null,
+)
+
+@Serializable
+data class ReceiverAccessConfiguration(
+    @SerialName("receiver_id") val receiverId: String,
+    val question: String,
+    val answer: String,
 )
 
 @Serializable

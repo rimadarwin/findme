@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Gestisce la MediaProjection persistente e i frame del mirroring.
  * @modified 24.09.2026 - MDS | Aggiunti cache immediata e keepalive ottimizzato a un frame al secondo.
  */

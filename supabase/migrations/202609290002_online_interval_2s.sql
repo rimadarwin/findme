@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Abilita l'intervallo online di due secondi.
  * @modified 29.09.2026 - MDS | Esteso il vincolo delle frequenze rapide.
  */

@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Vista fullscreen della posizione corrente e relativi controlli.
  * @modified 29.09.2026 - MDS | Collegato l'accesso alla verifica distanza.
  */

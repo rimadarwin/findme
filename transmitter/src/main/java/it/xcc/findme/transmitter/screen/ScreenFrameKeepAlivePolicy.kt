@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Regola l'invio dei frame di keepalive quando il mirroring resta statico.
  * @modified 24.09.2026 - MDS | Introdotta la policy di keepalive ottimizzato.
  */

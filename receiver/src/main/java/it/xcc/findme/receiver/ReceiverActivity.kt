@@ -1,6 +1,7 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Activity principale del ricevitore e coordinamento delle funzioni remote.
+ * @modified 01.10.2026 - Infinity | Uniformati layout secondari e aggiunta gestione challenge.
  * @modified 29.09.2026 - MDS | Aggiunto invio e feedback dei messaggi testuali.
  * @modified 29.09.2026 - MDS | Aggiunta verifica distanza con GPS locale e fullscreen.
  * @modified 29.09.2026 - MDS | Allineati switch e lifecycle al tracking persistente server-driven.
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -79,6 +81,7 @@ import it.xcc.findme.core.MediaCommandPolicy
 import it.xcc.findme.core.MediaConnectionPolicy
 import it.xcc.findme.core.MediaStreamKind
 import it.xcc.findme.core.MonitoredDevice
+import it.xcc.findme.core.ReceiverAccessConfiguration
 import it.xcc.findme.core.ReceiverProfile
 import it.xcc.findme.core.ReceiverPowerPolicy
 import it.xcc.findme.core.ReceiverTrackingSettings
@@ -118,6 +121,9 @@ class ReceiverActivity : ComponentActivity() {
     private lateinit var identity: DeviceIdentity
     private var ready by mutableStateOf(false)
     private var receiverProfile by mutableStateOf<ReceiverProfile?>(null)
+    private var receiverAccessConfiguration by mutableStateOf<ReceiverAccessConfiguration?>(null)
+    private var accessUpdateInProgress by mutableStateOf(false)
+    private var accessUpdateMessage by mutableStateOf("")
     private var devices by mutableStateOf<List<MonitoredDevice>>(emptyList())
     private lateinit var powerManager: PowerManager
     private lateinit var mediaWakeLock: PowerManager.WakeLock
@@ -436,7 +442,11 @@ class ReceiverActivity : ComponentActivity() {
                 modifier = Modifier
                     .fillMaxSize()
                     .then(
-                        if (distanceFullscreenActive) Modifier else Modifier.padding(16.dp),
+                        if (distanceFullscreenActive) {
+                            Modifier
+                        } else {
+                            Modifier.systemBarsPadding().padding(16.dp)
+                        },
                     ),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -475,7 +485,7 @@ class ReceiverActivity : ComponentActivity() {
                         if (historyFullscreenActive) {
                             Modifier
                         } else {
-                            Modifier.padding(16.dp)
+                            Modifier.systemBarsPadding().padding(16.dp)
                         },
                     ),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -555,8 +565,12 @@ class ReceiverActivity : ComponentActivity() {
                         devices = devices,
                         historyDeletionInProgress = historyDeletionInProgress,
                         historyDeletionMessage = historyDeletionMessage,
+                        accessConfiguration = receiverAccessConfiguration,
+                        accessUpdateInProgress = accessUpdateInProgress,
+                        accessUpdateMessage = accessUpdateMessage,
                         onBack = { showSettings = false },
                         onChange = ::saveTrackingSettings,
+                        onAccessUpdate = ::saveReceiverAccessConfiguration,
                         onDeleteHistory = ::deleteLocationHistory,
                         modifier = Modifier.weight(1f),
                     )
@@ -796,6 +810,8 @@ class ReceiverActivity : ComponentActivity() {
                         DeviceRole.RECEIVER,
                     )
                     activeRepository.registerReceiver(identity.id, identity.name)
+                    receiverAccessConfiguration =
+                        activeRepository.fetchReceiverAccessConfiguration(identity.id)
                     consecutiveFailures = 0
                     message = ""
                     ready = true
@@ -978,6 +994,29 @@ class ReceiverActivity : ComponentActivity() {
                 trackingSettings = previous
                 requestDataPlaneRecovery(it, "Salvataggio impostazioni non riuscito.")
             }
+        }
+    }
+
+    /** Salva domanda e risposta e aggiorna subito i valori mostrati nelle impostazioni. */
+    private fun saveReceiverAccessConfiguration(question: String, answer: String) {
+        if (accessUpdateInProgress) return
+        accessUpdateInProgress = true
+        accessUpdateMessage = ""
+        lifecycleScope.launch {
+            runCatching {
+                repository!!.updateReceiverAccessConfiguration(
+                    receiverId = identity.id,
+                    question = question,
+                    answer = answer,
+                )
+            }.onSuccess {
+                receiverAccessConfiguration = it
+                accessUpdateMessage = "Domanda e risposta aggiornate."
+            }.onFailure {
+                Log.e(TAG, "Unable to update receiver access configuration", it)
+                accessUpdateMessage = "Aggiornamento non riuscito. Riprova."
+            }
+            accessUpdateInProgress = false
         }
     }
 

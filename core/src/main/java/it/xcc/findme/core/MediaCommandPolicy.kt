@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Modello e policy per il feedback dei comandi multimediali remoti.
  * @modified 23.09.2026 - MDS | Aggiunto feedback verificato per il cambio fotocamera.
  * @modified 23.09.2026 - MDS | Aggiunta gestione di invio, conferma e timeout dei comandi.

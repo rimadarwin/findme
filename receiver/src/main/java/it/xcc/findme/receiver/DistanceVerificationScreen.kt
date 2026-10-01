@@ -1,6 +1,7 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Schermata normale e fullscreen per verificare la distanza TX-RX.
+ * @modified 01.10.2026 - Infinity | Aggiunti nomi leggibili e distanza in km oltre soglia.
  * @modified 29.09.2026 - MDS | Uniformato il ritorno alla schermata dello storico.
  * @modified 29.09.2026 - MDS | Resi visibili i controlli di ritorno normale e fullscreen.
  * @modified 29.09.2026 - MDS | Prima implementazione con coordinate e distanza Haversine.
@@ -79,7 +80,7 @@ fun DistanceVerificationScreen(
                     style = MaterialTheme.typography.titleLarge,
                 )
             }
-            DistanceCoordinates(device.location, receiverLocation)
+            DistanceCoordinates(device, receiverLocation)
             DistanceMapCard(
                 device = device,
                 receiverLocation = receiverLocation,
@@ -138,7 +139,7 @@ private fun DistanceFullscreenContent(
                     )
                 }
             }
-            DistanceCoordinates(device.location, receiverLocation)
+            DistanceCoordinates(device, receiverLocation)
             DistanceValue(device.location, receiverLocation)
         }
     }
@@ -219,12 +220,12 @@ private fun DistanceMapOrStatus(
 /** Riepiloga coordinate e accuratezza dei due telefoni. */
 @Composable
 private fun DistanceCoordinates(
-    transmitterLocation: DeviceLocation?,
+    device: MonitoredDevice,
     receiverLocation: DeviceLocation?,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        CoordinateRow("Trasmettitore", transmitterLocation, Color(0xFF00AEEF))
-        CoordinateRow("Ricevitore", receiverLocation, Color(0xFFFF5252))
+        CoordinateRow(device.displayName, device.location, Color(0xFF00AEEF))
+        CoordinateRow("Io", receiverLocation, Color(0xFFFF5252))
     }
 }
 
@@ -258,7 +259,9 @@ private fun DistanceValue(
         null
     }
     Text(
-        distance?.let { "Distanza in linea d’aria: %.1f m".format(it) }
+        distance?.let {
+            "Distanza in linea d’aria: ${TrackingConfigResolver.formatDistance(it)}"
+        }
             ?: "Distanza in linea d’aria: non disponibile",
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.primary,

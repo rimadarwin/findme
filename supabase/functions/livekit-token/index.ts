@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Genera token LiveKit usando il provider condiviso o quello dedicato al ricevitore.
  * @modified 24.09.2026 - MDS | Aggiunta risoluzione multi-tenant con fallback condiviso.
  */

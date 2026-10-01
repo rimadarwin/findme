@@ -1,7 +1,8 @@
 <!--
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Guida alla configurazione dei servizi esterni usati da FindMe.
+ * @modified 01.10.2026 - Infinity | Documentate migrazioni raggi area e challenge modificabile.
  * @modified 29.09.2026 - MDS | Documentati schema messaggi testuali e permesso overlay.
  * @modified 29.09.2026 - MDS | Documentata la consegna FCM persistente con retry.
  * @modified 24.09.2026 - MDS | Documentata la configurazione LiveKit multi-tenant.
@@ -45,7 +46,10 @@ rendere pubblico il bucket. Le migrazioni
 `202609290002_online_interval_2s.sql`,
 `202609290003_text_messages_schema.sql` e
 `202609290004_text_messages_rpc.sql` aggiungono l'intervallo online di due
-secondi e la coda persistente dei messaggi testuali con RPC atomica.
+secondi e la coda persistente dei messaggi testuali con RPC atomica. Le
+migrazioni `202610010001_geofence_radius_options.sql` e
+`202610010002_receiver_access_configuration.sql` aggiungono i raggi area da
+10/25 metri e la modifica owner-only di domanda e risposta.
 
 ### Identità automatica
 

@@ -1,6 +1,7 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Repository condiviso per Supabase, tracking, comandi e contenuti multimediali.
+ * @modified 01.10.2026 - Infinity | Aggiunta lettura e modifica della challenge ricevitore.
  * @modified 29.09.2026 - MDS | Aggiunta consegna persistente dei messaggi testuali.
  * @modified 29.09.2026 - MDS | Distinti lease UI, tracking persistente e disattivazione manuale.
  * @modified 23.09.2026 - MDS | Aggiunto polling di recovery dello stato tracking.
@@ -109,6 +110,36 @@ class FindMeRepository(
         client.from("receivers")
             .selectAsFlow(ReceiverTrackingSettings::receiverId)
             .map { rows -> rows.firstOrNull { it.receiverId == receiverId } }
+
+    /** Recupera domanda e risposta visibili soltanto al proprietario del ricevitore. */
+    suspend fun fetchReceiverAccessConfiguration(
+        receiverId: String,
+    ): ReceiverAccessConfiguration {
+        ensureAuthenticated()
+        return client.from("receiver_access_configurations").select {
+            filter { eq("receiver_id", receiverId) }
+            limit(1)
+        }.decodeSingle()
+    }
+
+    /** Aggiorna atomicamente configurazione leggibile e hash usato dai trasmettitori. */
+    suspend fun updateReceiverAccessConfiguration(
+        receiverId: String,
+        question: String,
+        answer: String,
+    ): ReceiverAccessConfiguration {
+        val (normalizedQuestion, normalizedAnswer) =
+            ReceiverAccessPolicy.normalize(question, answer)
+        ensureAuthenticated()
+        return client.postgrest.rpc(
+            function = "update_receiver_access_configuration",
+            parameters = buildJsonObject {
+                put("target_receiver_id", receiverId)
+                put("requested_question", normalizedQuestion)
+                put("requested_answer", normalizedAnswer)
+            },
+        ).decodeSingle()
+    }
 
     suspend fun updateReceiverTrackingSettings(
         receiverId: String,

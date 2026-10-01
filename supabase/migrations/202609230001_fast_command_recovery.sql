@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Riduce il ritardo massimo predefinito nel recupero dei comandi remoti.
  * @modified 23.09.2026 - MDS | Aggiunto polling comandi a cinque secondi.
  */

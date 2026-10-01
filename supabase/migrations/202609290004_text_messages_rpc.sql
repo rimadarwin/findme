@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Crea atomicamente messaggio testuale e comando persistente.
  * @modified 29.09.2026 - MDS | Aggiunta RPC autorizzata per il ricevitore associato.
  */

@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Verifica la temporizzazione del keepalive per il mirroring dello schermo.
  * @modified 24.09.2026 - MDS | Aggiunti i test della policy di keepalive ottimizzato.
  */

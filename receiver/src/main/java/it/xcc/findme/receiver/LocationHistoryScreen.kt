@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Schermata di consultazione della cronologia delle posizioni del dispositivo.
  * @modified 23.09.2026 - MDS | Rimossa la duplicazione grafica del punto selezionato nell'elenco.
  * @modified 23.09.2026 - MDS | Reso persistente lo stato fullscreen durante il cambio di orientamento.

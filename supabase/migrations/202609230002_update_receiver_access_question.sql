@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Aggiorna il testo della domanda di accesso configurata sui ricevitori.
  * @modified 23.09.2026 - MDS | Sostituita la domanda "Dove sei nato?" con "Dove sono nato?".
  */

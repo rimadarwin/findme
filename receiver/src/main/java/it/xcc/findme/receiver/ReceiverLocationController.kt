@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Gestisce il GPS locale del ricevitore durante la verifica distanza.
  * @modified 29.09.2026 - MDS | Prima implementazione foreground con intervallo dinamico.
  */

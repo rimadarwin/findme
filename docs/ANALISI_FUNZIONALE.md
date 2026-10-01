@@ -1,7 +1,8 @@
 <!--
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Specifica funzionale completa del prodotto FindMe.
+ * @modified 01.10.2026 - Infinity | Aggiunti challenge modificabile, raggi brevi e layout uniformi.
  * @modified 29.09.2026 - MDS | Aggiunti verifica distanza e messaggi testuali overlay.
  * @modified 29.09.2026 - MDS | Descritto l'avviso area one-shot con controlli rapidi persistenti.
  */
@@ -368,12 +369,14 @@ Il link **Consulta storico posizioni** apre la pagina dedicata.
 
 Il link **Verifica distanza** apre una vista con posizione trasmettitore blu,
 posizione ricevitore rossa e linea tratteggiata fra i due punti. Sopra la
-mappa sono mostrate coordinate e accuratezza di entrambi; sotto compare la
-distanza Haversine in linea d’aria, espressa in metri. Il GPS del ricevitore
-resta locale e viene usato soltanto mentre la vista è aperta. L’intervallo
-segue lo stato corrente: frequenza online con **Aggiornamento rapido** ON,
-frequenza offline con lo switch OFF. La mappa dispone di fullscreen landscape
-e ritorno alla vista normale.
+mappa sono mostrate coordinate e accuratezza di entrambi, usando **Io** per il
+ricevitore e il nome personalizzato per il trasmettitore; sotto compare la
+distanza Haversine in linea d’aria, espressa in metri sotto 1 km e in
+chilometri da 1 km in poi. Il GPS del ricevitore resta locale e viene usato
+soltanto mentre la vista è aperta. L’intervallo segue lo stato corrente:
+frequenza online con **Aggiornamento rapido** ON, frequenza offline con lo
+switch OFF. La mappa dispone di fullscreen landscape e ritorno alla vista
+normale.
 
 ### 7.3 Fullscreen posizione
 
@@ -625,13 +628,19 @@ Opzioni:
 - **Frequenza online**: 2, 5, 10, 15, 20 secondi.
 - **Frequenza storico**: 1x, 2x, 3x.
 - **Solo movimento**: salva soltanto dopo spostamento significativo.
-- **Raggio avviso area**: 50, 100, 250, 500, 1000 metri.
+- **Raggio avviso area**: 10, 25, 50, 100, 250, 500, 1000 metri.
 - **Frequenza heartbeat**: 30, 60, 90, 120 secondi.
 - **Frequenza controllo comandi**: 30, 60, 120, 300 secondi.
 
 Ogni gruppo mostra titolo, descrizione e chip orizzontali scrollabili.
 
-### 9.1 Cancellazione storico
+### 9.1 Accesso trasmettitori
+
+Prima della cancellazione storico compare una card con domanda e risposta
+correnti. Entrambi i campi sono obbligatori; **Aggiorna** salva i valori e
+rigenera l’hash usato per verificare gli accessi successivi dei trasmettitori.
+
+### 9.2 Cancellazione storico
 
 In fondo appare il pulsante rosso **Cancella storico posizioni**.
 
@@ -783,7 +792,8 @@ separatamente.
 - Il Setup Wizard può variare fra produttori: il QR va validato sui modelli
   reali.
 - Il bucket dei messaggi vocali deve restare privato.
-- Le risposte alla domanda di sicurezza non devono essere salvate in chiaro.
+- La verifica usa bcrypt; il valore mostrato nelle impostazioni è isolato in
+  una tabella RLS leggibile soltanto dal proprietario del ricevitore.
 - Uscendo dal dettaglio gli stream devono spegnersi; per questo la home non
   mostra etichette ridondanti “Video OFF/Audio OFF”.
 - I renderer video devono sopravvivere ai cambi tab senza doppia

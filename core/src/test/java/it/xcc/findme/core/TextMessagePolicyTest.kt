@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Verifica validazione testo e dimensionamento font overlay.
  * @modified 29.09.2026 - MDS | Prima copertura della policy messaggi.
  */

@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Policy energetica per sessioni remote attive sul ricevitore.
  * @modified 23.09.2026 - MDS | Estesa la protezione al tracking rapido.
  */

@@ -1,6 +1,7 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Schermata delle impostazioni di tracking e recupero connessione.
+ * @modified 01.10.2026 - Infinity | Aggiunta modifica domanda e risposta di accesso.
  * @modified 29.09.2026 - MDS | Aggiunta la frequenza online di due secondi.
  * @modified 23.09.2026 - MDS | Aggiunte frequenze rapide per il recupero dei comandi.
  */
@@ -31,6 +32,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,7 +45,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import it.xcc.findme.core.MonitoredDevice
+import it.xcc.findme.core.ReceiverAccessConfiguration
+import it.xcc.findme.core.ReceiverAccessPolicy
 import it.xcc.findme.core.ReceiverTrackingSettings
+import it.xcc.findme.core.TrackingConfigResolver
 import it.xcc.findme.core.TrackingSettingsUpdate
 
 @Composable
@@ -55,14 +60,24 @@ fun TrackingSettingsScreen(
     devices: List<MonitoredDevice>,
     historyDeletionInProgress: Boolean,
     historyDeletionMessage: String,
+    accessConfiguration: ReceiverAccessConfiguration?,
+    accessUpdateInProgress: Boolean,
+    accessUpdateMessage: String,
     onBack: () -> Unit,
     onChange: (TrackingSettingsUpdate) -> Unit,
+    onAccessUpdate: (String, String) -> Unit,
     onDeleteHistory: (Set<String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showDeviceSelection by remember { mutableStateOf(false) }
     var showDeletionConfirmation by remember { mutableStateOf(false) }
     var selectedDeviceIds by remember { mutableStateOf(emptySet<String>()) }
+    var accessQuestion by remember(accessConfiguration?.question) {
+        mutableStateOf(accessConfiguration?.question.orEmpty())
+    }
+    var accessAnswer by remember(accessConfiguration?.answer) {
+        mutableStateOf(accessConfiguration?.answer.orEmpty())
+    }
 
     Column(
         modifier = modifier
@@ -121,7 +136,7 @@ fun TrackingSettingsScreen(
         SettingOptions(
             title = "Raggio avviso area",
             description = "Distanza dal punto di attivazione oltre la quale inviare l’avviso.",
-            values = listOf(50, 100, 250, 500, 1000),
+            values = TrackingConfigResolver.geofenceRadiusOptions,
             selected = settings.geofenceRadiusM,
             label = { "$it m" },
             onSelected = {
@@ -152,6 +167,20 @@ fun TrackingSettingsScreen(
             "Le modifiche sono salvate subito e valgono per tutti i trasmettitori associati.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
+        )
+        AccessConfigurationSection(
+            question = accessQuestion,
+            answer = accessAnswer,
+            loading = accessConfiguration == null,
+            updating = accessUpdateInProgress,
+            feedback = accessUpdateMessage,
+            onQuestionChange = {
+                accessQuestion = it.take(ReceiverAccessPolicy.MAX_QUESTION_LENGTH)
+            },
+            onAnswerChange = {
+                accessAnswer = it.take(ReceiverAccessPolicy.MAX_ANSWER_LENGTH)
+            },
+            onUpdate = { onAccessUpdate(accessQuestion, accessAnswer) },
         )
         Button(
             onClick = {
@@ -213,6 +242,87 @@ fun TrackingSettingsScreen(
                 onDeleteHistory(selectedDeviceIds)
             },
         )
+    }
+}
+
+/** Modifica la domanda e la risposta richieste sui trasmettitori associati. */
+@Composable
+private fun AccessConfigurationSection(
+    question: String,
+    answer: String,
+    loading: Boolean,
+    updating: Boolean,
+    feedback: String,
+    onQuestionChange: (String) -> Unit,
+    onAnswerChange: (String) -> Unit,
+    onUpdate: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                "Accesso trasmettitori",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                "Domanda e risposta mostrate all’apertura dei trasmettitori associati.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = question,
+                onValueChange = onQuestionChange,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading && !updating,
+                label = { Text("Domanda") },
+                singleLine = true,
+            )
+            OutlinedTextField(
+                value = answer,
+                onValueChange = onAnswerChange,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !loading && !updating,
+                label = { Text("Risposta") },
+                singleLine = true,
+            )
+            Button(
+                onClick = onUpdate,
+                enabled = !loading &&
+                    !updating &&
+                    ReceiverAccessPolicy.isValid(question, answer),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (updating) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text("Aggiorna")
+                }
+            }
+            if (loading) {
+                Text(
+                    "Caricamento configurazione accesso…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (feedback.isNotBlank()) {
+                Text(
+                    feedback,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
     }
 }
 

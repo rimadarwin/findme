@@ -1,6 +1,6 @@
 <!--
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Manuale operativo dell'app FindMe Trasmettitore.
  * @modified 29.09.2026 - MDS | Documentati permesso e overlay dei messaggi testuali.
  */

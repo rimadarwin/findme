@@ -1,6 +1,7 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Stato tecnico e indicazioni di passaggio del progetto FindMe.
+ * @modified 01.10.2026 - Infinity | Documentati challenge modificabile e raggi area brevi.
  * @modified 29.09.2026 - MDS | Documentati distanza TX-RX e messaggi overlay.
  * @modified 29.09.2026 - MDS | Documentata l'implementazione dell'alert area persistente.
  * @modified 23.09.2026 - MDS | Documentata la persistenza del tracking rapido al blocco.
@@ -26,7 +27,8 @@ Evoluzioni implementate e validate sui dispositivi reali:
 
 - accesso anonimo automatico senza login visibile;
 - anagrafica ricevitori e relazione uno-a-molti tramite codice di pairing;
-- domanda di accesso del ricevitore con risposta conservata come hash bcrypt;
+- domanda di accesso modificabile dal ricevitore, hash bcrypt per la verifica e
+  copia owner-only necessaria alla visualizzazione nelle impostazioni;
 - dashboard trasmettitore scura neon blu;
 - permessi camera/microfono/GPS, posizione e notifiche rappresentati come switch;
 - riconnessione LiveKit e rendering video tramite `TextureViewRenderer`;
@@ -118,7 +120,9 @@ Le migrazioni `202609160005_media_state.sql`,
 `202609290001_geofence_exit_tracking.sql`,
 `202609290002_online_interval_2s.sql`,
 `202609290003_text_messages_schema.sql` e
-`202609290004_text_messages_rpc.sql` devono essere applicate prima di
+`202609290004_text_messages_rpc.sql`,
+`202610010001_geofence_radius_options.sql` e
+`202610010002_receiver_access_configuration.sql` devono essere applicate prima di
 installare le nuove versioni delle app.
 
 Nota di implementazione: i campi booleani dello stato media usano

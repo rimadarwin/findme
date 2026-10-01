@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Test della policy di feedback dei comandi multimediali.
  * @modified 23.09.2026 - MDS | Aggiunti test di conferma del cambio fotocamera.
  * @modified 23.09.2026 - MDS | Aggiunti test per destinazione, conferma e timeout.

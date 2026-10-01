@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Rende atomica l'uscita area e mantiene tracking rapido e notifica affidabili.
  * @modified 29.09.2026 - MDS | Aggiunti tracking persistente e coda retry FCM sulla relazione.
  */

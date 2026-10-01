@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Visualizza messaggi testuali sopra le altre applicazioni.
  * @modified 29.09.2026 - MDS | Sovrapposta la X all'angolo superiore senza ridurre il testo.
  * @modified 29.09.2026 - MDS | Corretto testo multilinea e spostata la X fuori dalla cornice.

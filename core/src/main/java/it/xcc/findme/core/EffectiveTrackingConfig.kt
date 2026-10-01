@@ -1,6 +1,8 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Policy per frequenze tracking, storico, percorsi e geofence.
+ * @modified 01.10.2026 - Infinity | Aggiunta formattazione metri/chilometri della distanza.
+ * @modified 01.10.2026 - Infinity | Aggiunte opzioni raggio area da 10 e 25 metri.
  * @modified 29.09.2026 - MDS | Considerato il tracking rapido persistente attivato dall'uscita area.
  * @modified 23.09.2026 - MDS | Normalizzato il lease Supabase con offset UTC.
  */
@@ -8,6 +10,7 @@ package it.xcc.findme.core
 
 import java.time.Instant
 import java.time.OffsetDateTime
+import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
@@ -27,6 +30,15 @@ data class EffectiveTrackingConfig(
 
 object TrackingConfigResolver {
     val defaults = ReceiverTrackingSettings(receiverId = "")
+    val geofenceRadiusOptions = listOf(10, 25, 50, 100, 250, 500, 1000)
+
+    /** Formatta la distanza in metri sotto un chilometro, altrimenti in chilometri. */
+    fun formatDistance(distanceMeters: Double, locale: Locale = Locale.getDefault()): String =
+        if (distanceMeters < 1_000.0) {
+            String.format(locale, "%.1f m", distanceMeters)
+        } else {
+            String.format(locale, "%.2f km", distanceMeters / 1_000.0)
+        }
 
     /**
      * Risolve le frequenze effettive combinando impostazioni e lease rapido.
@@ -153,7 +165,7 @@ data class GeofenceTransition(
 )
 
 object GeofencePolicy {
-    val allowedRadiiM = setOf(50, 100, 250, 500, 1000)
+    val allowedRadiiM = setOf(10, 25, 50, 100, 250, 500, 1000)
 
     /**
      * Valuta lo stato geofence e segnala solo la transizione verso l'esterno.

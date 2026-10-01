@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Configura provider LiveKit dedicati per singolo ricevitore.
  * @modified 24.09.2026 - MDS | Aggiunta configurazione multi-tenant con riferimenti agli Edge Secrets.
  */

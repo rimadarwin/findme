@@ -1,7 +1,8 @@
 <!--
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Manuale operativo dell'app FindMe Ricevitore.
+ * @modified 01.10.2026 - Infinity | Aggiunti raggi brevi e modifica domanda/risposta.
  * @modified 29.09.2026 - MDS | Aggiunti verifica distanza e tab messaggio.
  * @modified 29.09.2026 - MDS | Aggiornato il comportamento dell'avviso uscita area.
  */
@@ -140,7 +141,7 @@ Scorrere verso il basso per le opzioni avanzate.
 
 ![Configurazioni avanzate](manuale/assets/receiver-03-configurazioni-avanzate.jpg)
 
-- **Raggio avviso area**: 50, 100, 250, 500 o 1000 metri.
+- **Raggio avviso area**: 10, 25, 50, 100, 250, 500 o 1000 metri.
 - **Frequenza heartbeat**: 30, 60, 90 o 120 secondi.
 - **Frequenza controllo comandi**: 30, 60, 120 o 300 secondi.
 
@@ -227,7 +228,9 @@ Orientamento e barre vengono ripristinati automaticamente.
 Sotto **Consulta storico posizioni**, premere **Verifica distanza** e concedere
 la posizione al ricevitore. La mappa mostra il trasmettitore in blu, il
 ricevitore in rosso e una linea tratteggiata fra i due. Sopra sono indicate
-coordinate e accuratezza; sotto è riportata la distanza in linea d’aria.
+coordinate e accuratezza: il ricevitore è identificato da **Io**, mentre il
+trasmettitore usa il suo nome personalizzato. Sotto è riportata la distanza
+in linea d’aria, in metri sotto 1 km e in chilometri da 1 km in poi.
 
 ![Verifica distanza](manuale/assets/receiver-17-distanza.png)
 
@@ -448,7 +451,15 @@ altre applicazioni. Il messaggio resta visibile finché viene premuta la X. Se
 compare l’avviso di permesso mancante, autorizzare **Messaggi in primo piano**
 sul trasmettitore: il messaggio pendente apparirà automaticamente.
 
-## 10. Cancellare lo storico
+## 10. Modificare domanda e risposta
+
+In **Configurazioni generali**, scorrere fino alla sezione
+**Accesso trasmettitori**. I campi **Domanda** e **Risposta** mostrano i valori
+attualmente in uso. Modificarli e premere **Aggiorna**: entrambi sono
+obbligatori e la nuova configurazione viene richiesta alle successive aperture
+dei trasmettitori associati.
+
+## 11. Cancellare lo storico
 
 In **Configurazioni generali**, scorrere in fondo e premere il pulsante rosso
 **Cancella storico posizioni**.
@@ -463,7 +474,7 @@ In **Configurazioni generali**, scorrere in fondo e premere il pulsante rosso
 L’operazione è definitiva e riguarda solo i dispositivi selezionati. Il
 backend verifica nuovamente che appartengano al ricevitore.
 
-## 11. Schermo spento, cambio app e consumo
+## 12. Schermo spento, cambio app e consumo
 
 Durante streaming o registrazione FindMe mantiene temporaneamente schermo e
 CPU attivi. Il blocco manuale del display non deve interrompere la sessione.
@@ -472,7 +483,7 @@ Passando volontariamente a un’altra app o tornando alla home FindMe può
 chiudere gli stream per evitare consumi non desiderati. Senza audio, video o
 schermo attivi non viene mantenuta alcuna connessione LiveKit.
 
-## 12. Risoluzione dei problemi
+## 13. Risoluzione dei problemi
 
 ### Il trasmettitore è offline
 
@@ -537,7 +548,7 @@ parziali.
 - verificare il feedback di stato;
 - registrare un nuovo messaggio se lo stato finale è fallito.
 
-## 13. Checklist rapida
+## 14. Checklist rapida
 
 - [ ] Ricevitore connesso a Internet.
 - [ ] Trasmettitore associato e online.

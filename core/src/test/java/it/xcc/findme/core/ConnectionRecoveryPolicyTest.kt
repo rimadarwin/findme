@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Test delle policy di recupero delle connessioni.
  * @modified 23.09.2026 - MDS | Verificato il polling comandi minimo a cinque secondi.
  */

@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Compatta i comandi di stato preservando quelli puntuali.
  * @modified 29.09.2026 - MDS | Reso passthrough ogni messaggio testuale.
  */

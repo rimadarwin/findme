@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Policy per rilevare e recuperare una registrazione posizione non più attiva.
  * @modified 23.09.2026 - MDS | Aggiunta policy watchdog per gli aggiornamenti posizione.
  */

@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Adatta i frame della MediaProjection al capturer video di LiveKit.
  * @modified 24.09.2026 - MDS | Condivisa la copia I420 con la cache del keepalive.
  */

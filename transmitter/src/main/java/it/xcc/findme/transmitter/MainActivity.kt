@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Dashboard, accesso e autorizzazioni del trasmettitore.
  * @modified 29.09.2026 - MDS | Aggiunta autorizzazione messaggi sopra altre app.
  */

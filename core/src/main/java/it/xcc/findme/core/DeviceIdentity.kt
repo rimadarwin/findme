@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Identità locale del dispositivo e cache delle impostazioni tracking.
  * @modified 29.09.2026 - MDS | Conservati tracking persistente e retry geofence nei riavvii offline.
  * @modified 23.09.2026 - MDS | Aggiornato il fallback del polling comandi a cinque secondi.

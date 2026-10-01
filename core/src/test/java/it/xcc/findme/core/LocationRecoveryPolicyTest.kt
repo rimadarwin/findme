@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Test della policy di recovery delle richieste posizione.
  * @modified 23.09.2026 - MDS | Aggiunto test per timestamp PostgreSQL con offset UTC.
  * @modified 23.09.2026 - MDS | Aggiunti test per timeout, pending e registrazioni perse.

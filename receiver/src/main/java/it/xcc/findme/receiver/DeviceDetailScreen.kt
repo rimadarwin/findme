@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Schermata di dettaglio del trasmettitore e controlli remoti.
  * @modified 29.09.2026 - MDS | Compattati i link posizione e rispettata la barra di navigazione.
  * @modified 29.09.2026 - MDS | Aggiunto accesso alla verifica distanza.

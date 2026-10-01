@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Servizio foreground per tracking, comandi remoti e streaming del trasmettitore.
  * @modified 29.09.2026 - MDS | Aggiunta coda non bloccante dei messaggi overlay.
  * @modified 29.09.2026 - MDS | Mantenuti tracking rapido e retry notifica dopo l'uscita area.

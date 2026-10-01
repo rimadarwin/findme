@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Aggiunge messaggi testuali persistenti e relativo comando.
  * @modified 29.09.2026 - MDS | Creati enum, tabella, RLS e payload comando.
  */

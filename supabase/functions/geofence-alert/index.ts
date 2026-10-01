@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Valuta l'uscita area e consegna la notifica FCM con retry persistente.
  * @modified 29.09.2026 - MDS | Aggiunti claim atomico, conferma e diagnostica dei retry FCM.
  */

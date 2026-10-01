@@ -1,7 +1,8 @@
 <!--
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Analisi tecnica e guida di riproduzione dell'architettura FindMe.
+ * @modified 01.10.2026 - Infinity | Documentati raggi area e configurazione challenge protetta.
  * @modified 29.09.2026 - MDS | Documentati distanza TX-RX e messaggi overlay persistenti.
  * @modified 29.09.2026 - MDS | Documentati transazione di uscita area e retry FCM persistente.
  * @modified 24.09.2026 - MDS | Documentata la risoluzione multi-tenant dei provider LiveKit.
@@ -319,7 +320,15 @@ Default:
 Il trigger `assign_receiver_pairing_code` produce 10 caratteri esadecimali
 maiuscoli da `pgcrypto`.
 
-### 8.4 `receiver_transmitters`
+### 8.4 `receiver_access_configurations`
+
+Contiene domanda e risposta correnti per la sola interfaccia del proprietario.
+La policy RLS consente esclusivamente la lettura all’account proprietario del
+ricevitore; inserimento e modifica avvengono soltanto tramite RPC autorizzata.
+La tabella `receivers` continua a conservare l’hash bcrypt usato dalla Edge
+Function per la verifica.
+
+### 8.5 `receiver_transmitters`
 
 Campi finali:
 
@@ -336,7 +345,7 @@ Campi finali:
 Un indice unico su `transmitter_id` impone un solo ricevitore per
 trasmettitore.
 
-### 8.5 `device_status`
+### 8.6 `device_status`
 
 Una riga per trasmettitore:
 
@@ -352,7 +361,7 @@ I booleani media nel modello Kotlin usano `@EncodeDefault`. È indispensabile:
 senza serializzazione esplicita di `false`, un upsert può omettere il campo e
 lasciare nel DB uno stream erroneamente ON.
 
-### 8.6 Posizione
+### 8.7 Posizione
 
 `device_locations` contiene l’ultima posizione per device tramite upsert.
 
@@ -365,7 +374,7 @@ lasciare nel DB uno stream erroneamente ON.
 - timestamp;
 - indice `(device_id, recorded_at desc)`.
 
-### 8.7 Comandi
+### 8.8 Comandi
 
 `device_commands` contiene:
 
@@ -380,7 +389,7 @@ lasciare nel DB uno stream erroneamente ON.
 L’indice parziale sui pending accelera il recupero. Il constraint finale
 richiede `voice_message_id` soltanto per `play_voice_message`.
 
-### 8.8 Messaggi vocali
+### 8.9 Messaggi vocali
 
 `voice_messages` contiene:
 
@@ -400,12 +409,12 @@ Il bucket `voice-messages`:
 - path obbligatorio:
   `<receiverUuid>/<transmitterUuid>/<messageUuid>.m4a`.
 
-### 8.9 Push token
+### 8.10 Push token
 
 `receiver_push_tokens` associa token/installazione al ricevitore e consente
 gestione soltanto al proprietario via RLS.
 
-### 8.10 Messaggi testuali
+### 8.11 Messaggi testuali
 
 `text_messages` conserva UUID, ricevitore, trasmettitore, corpo normalizzato
 1–500 caratteri, errore e timestamp. Gli stati sono `pending`,
@@ -440,6 +449,9 @@ record e comando. Il comando resta pending finché l’utente chiude l’overlay
 20. `202609290002_online_interval_2s.sql`: frequenza online minima di 2 secondi.
 21. `202609290003_text_messages_schema.sql`: messaggi testuali, RLS e comando.
 22. `202609290004_text_messages_rpc.sql`: creazione atomica e retention.
+23. `202610010001_geofence_radius_options.sql`: raggi area da 10 e 25 metri.
+24. `202610010002_receiver_access_configuration.sql`: configurazione owner-only
+    e RPC atomica per domanda, risposta e hash bcrypt.
 
 Avvertenza PostgreSQL: l’uso di un nuovo valore enum nella stessa transazione
 che lo aggiunge può fallire. Mantenere separate le migrazioni schema e RPC,
@@ -457,6 +469,8 @@ Helper principali:
   leggere impostazioni del ricevitore senza policy ricorsive;
 - `verify_receiver_answer(uuid,text)`: confronto bcrypt, eseguibile solo da
   service role;
+- `update_receiver_access_configuration(uuid,text,text)`: valida il proprietario,
+  aggiorna domanda e hash e sincronizza la configurazione leggibile via RLS;
 - `can_upload_voice_message_object(text,text)`: autorizza il proprietario del
   ricevitore associato;
 - `can_access_voice_message_object(text,text)`: autorizza ricevitore o

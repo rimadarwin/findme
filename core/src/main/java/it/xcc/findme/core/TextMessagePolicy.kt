@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Validazione messaggi testuali e dimensionamento adattivo del font.
  * @modified 29.09.2026 - MDS | Prima implementazione condivisa.
  */

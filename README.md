@@ -1,7 +1,8 @@
 <!--
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Presentazione, build e uso essenziale del progetto FindMe.
+ * @modified 01.10.2026 - Infinity | Documentate configurazione challenge e nuove distanze area.
  * @modified 29.09.2026 - MDS | Documentati verifica distanza e messaggi in primo piano.
  * @modified 29.09.2026 - MDS | Documentato l'avviso area one-shot con tracking persistente.
  */
@@ -85,7 +86,8 @@ manualmente.
 
 Da **Configurazioni generali** è possibile cancellare definitivamente lo
 storico scegliendo uno o più trasmettitori associati e confermando
-esplicitamente l’operazione.
+esplicitamente l’operazione. Nella stessa schermata il ricevitore può modificare
+la domanda e la risposta richieste all’apertura dei trasmettitori.
 
 Audio, video e mirroring schermo sono realmente on-demand: senza uno stream attivo, né il
 trasmettitore né il ricevitore mantengono una connessione LiveKit. Lo storico,
@@ -132,7 +134,7 @@ Dal tab Posizione è inoltre possibile:
 - confrontare su mappa le posizioni di ricevitore e trasmettitore, con linea
   tratteggiata, coordinate, distanza in linea d’aria e fullscreen;
 - attivare un avviso area centrato sulla posizione corrente, con raggio
-  50/100/250/500/1000 metri;
+  10/25/50/100/250/500/1000 metri;
 - ricevere una notifica FCM quando il trasmettitore passa dall’interno
   all’esterno dell’area. Alla prima uscita l’avviso termina e abilita
   automaticamente aggiornamento rapido e storico rapido persistenti.
@@ -141,8 +143,10 @@ Non servono email o password. Il pairing iniziale usa un codice univoco di 10
 caratteri fornito durante il provisioning; il nome del dispositivo rimane
 soltanto un'etichetta leggibile. Dopo l'accesso è possibile cambiare ricevitore
 dalla dashboard.
-La risposta alla domanda non viene salvata in chiaro: il database conserva
-soltanto un hash bcrypt.
+La verifica del trasmettitore usa un hash bcrypt. Per consentire al proprietario
+di visualizzare e modificare la risposta, il valore corrente è conservato anche
+in una tabella separata, leggibile soltanto dall’account anonimo proprietario
+del ricevitore tramite RLS.
 
 Manuali operativi con schermate reali (Markdown e PDF):
 

@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Mappa della distanza fra trasmettitore e ricevitore.
  * @modified 29.09.2026 - MDS | Aggiunti marker distinti, linea tratteggiata e bounds dinamici.
  */

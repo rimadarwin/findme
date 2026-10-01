@@ -1,12 +1,14 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Verifica la risoluzione delle frequenze di tracking e le policy correlate.
+ * @modified 01.10.2026 - Infinity | Coperti i raggi area da 10 e 25 metri.
  * @modified 29.09.2026 - MDS | Coperti intervallo online 2 s e distanza nota.
  * @modified 29.09.2026 - MDS | Coperti tracking persistente e indipendenza dall'avviso area.
  */
 package it.xcc.findme.core
 
 import java.time.Instant
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -69,6 +71,14 @@ class TrackingConfigResolverTest {
     }
 
     @Test
+    fun `geofence options include short radiuses`() {
+        assertEquals(
+            listOf(10, 25, 50, 100, 250, 500, 1000),
+            TrackingConfigResolver.geofenceRadiusOptions,
+        )
+    }
+
+    @Test
     fun `distance calculation returns approximately one kilometer`() {
         val from = point(41.800000, 12.600000, 5f)
         val to = point(41.809000, 12.600000, 5f)
@@ -76,6 +86,13 @@ class TrackingConfigResolverTest {
         val distance = TrackingConfigResolver.distanceMeters(from, to)
 
         assertTrue(distance in 995.0..1_010.0)
+    }
+
+    @Test
+    fun `distance formatting switches from meters to kilometers`() {
+        assertEquals("999.9 m", TrackingConfigResolver.formatDistance(999.9, Locale.US))
+        assertEquals("1.00 km", TrackingConfigResolver.formatDistance(1_000.0, Locale.US))
+        assertEquals("12.35 km", TrackingConfigResolver.formatDistance(12_345.0, Locale.US))
     }
 
     @Test
@@ -247,7 +264,7 @@ class TrackingConfigResolverTest {
         assertFalse(stillOutside.shouldNotify)
         assertFalse(reentered.isOutside)
         assertTrue(secondExit.shouldNotify)
-        assertEquals(setOf(50, 100, 250, 500, 1000), GeofencePolicy.allowedRadiiM)
+        assertEquals(setOf(10, 25, 50, 100, 250, 500, 1000), GeofencePolicy.allowedRadiiM)
     }
 
     private fun point(latitude: Double, longitude: Double, accuracy: Float) = DeviceLocation(

@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Test della protezione energetica delle sessioni del ricevitore.
  * @modified 23.09.2026 - MDS | Verificata la persistenza del tracking rapido al blocco.
  */

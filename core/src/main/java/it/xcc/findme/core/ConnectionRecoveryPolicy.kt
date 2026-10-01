@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Policy condivise per retry, polling e controllo salute connessioni.
  * @modified 23.09.2026 - MDS | Ridotto a cinque secondi il polling minimo dei comandi.
  */

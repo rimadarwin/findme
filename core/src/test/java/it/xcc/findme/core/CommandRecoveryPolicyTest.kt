@@ -1,5 +1,5 @@
 /**
- * @author Maurizio di Sabato <maurizio.disabato@xcconsulting.it>
+ * @author Infinity
  * @description Verifica compattazione e passthrough dei comandi persistenti.
  * @modified 29.09.2026 - MDS | Coperti i messaggi testuali non compattabili.
  */
