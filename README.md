@@ -94,6 +94,12 @@ trasmettitore né il ricevitore mantengono una connessione LiveKit. Lo storico,
 con retention di 30 giorni, offre filtri 6h/24h/7 giorni o data/ora, percorso
 MapLibre, timeline e lista paginata.
 
+Dalla home del ricevitore l’icona griglia consente di selezionare almeno due
+trasmettitori e gestire insieme video e audio. I video supportano griglia
+fullscreen 2×2 e fullscreen singolo; l’audio viene riprodotto simultaneamente.
+Le registrazioni restano separate per dispositivo e sono limitate a due
+contemporanee per tipo.
+
 Durante lo streaming video il ricevitore può cambiare fotocamera e salvare il
 fotogramma visualizzato nella galleria, dentro `Pictures/FindMe`.
 

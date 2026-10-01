@@ -1,6 +1,7 @@
 /**
  * @author Infinity
  * @description Schermata di dettaglio del trasmettitore e controlli remoti.
+ * @modified 01.10.2026 - Infinity | Compattata l’anteprima video con comandi laterali.
  * @modified 29.09.2026 - MDS | Compattati i link posizione e rispettata la barra di navigazione.
  * @modified 29.09.2026 - MDS | Aggiunto accesso alla verifica distanza.
  * @modified 29.09.2026 - MDS | Spiegato l'effetto persistente dell'uscita area sui controlli rapidi.
@@ -35,8 +36,6 @@ import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.FullscreenExit
-import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.Cameraswitch
 import androidx.compose.material.icons.outlined.FiberManualRecord
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.NotificationsActive
@@ -63,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import it.xcc.findme.core.CameraSwitchFeedback
@@ -106,6 +106,7 @@ fun DeviceDetailScreen(
     onFastHistoryChange: (Boolean) -> Unit,
     onGeofenceChange: (Boolean) -> Unit,
     onFullscreen: () -> Unit,
+    onVideoFullscreen: () -> Unit,
     onScreenFullscreen: () -> Unit,
     onOpenHistory: () -> Unit,
     onVerifyDistance: () -> Unit,
@@ -185,6 +186,7 @@ fun DeviceDetailScreen(
                     trackAvailable = videoTrackAvailable,
                     recordingState = videoRecordingState,
                     onRecordingToggle = onVideoRecordingToggle,
+                    onFullscreen = onVideoFullscreen,
                     videoContent = videoContent,
                 )
                 DeviceTab.AUDIO -> AudioTab(
@@ -583,9 +585,12 @@ private fun VideoTab(
     trackAvailable: Boolean,
     recordingState: LocalRecordingState,
     onRecordingToggle: () -> Unit,
+    onFullscreen: () -> Unit,
     videoContent: @Composable () -> Unit,
 ) {
     val streaming = item.status?.cameraStreaming == true
+    val cameraSwitchActive = cameraSwitchFeedback != null &&
+        cameraSwitchFeedback.phase != MediaCommandPhase.FAILED
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -601,70 +606,20 @@ private fun VideoTab(
             onCheckedChange = {
                 onCommand(if (it) CommandType.START_VIDEO else CommandType.STOP_VIDEO)
             },
-            action = {
-                val cameraSwitchActive = cameraSwitchFeedback != null &&
-                    cameraSwitchFeedback.phase != MediaCommandPhase.FAILED
-                IconButton(
-                    enabled = streaming && !recordingState.isActive && !cameraSwitchActive,
-                    onClick = { onCommand(CommandType.SWITCH_CAMERA) },
-                ) {
-                    if (cameraSwitchActive) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(26.dp),
-                            strokeWidth = 3.dp,
-                        )
-                    } else {
-                        Icon(
-                            Icons.Outlined.Cameraswitch,
-                            contentDescription = "Cambia fotocamera",
-                            modifier = Modifier.size(30.dp),
-                            tint = if (streaming) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
-                }
-                IconButton(
-                    enabled = streaming,
-                    onClick = onTakePhoto,
-                ) {
-                    Icon(
-                        Icons.Outlined.CameraAlt,
-                        contentDescription = "Scatta foto",
-                        modifier = Modifier.size(28.dp),
-                        tint = if (streaming) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-            },
         )
-        RecordingControl(
-            title = "Registra video",
-            state = recordingState,
-            enabled = streaming && trackAvailable,
-            onToggle = onRecordingToggle,
+        CompactVideoPanel(
+            streaming = streaming,
+            trackAvailable = trackAvailable,
+            cameraInterrupted = item.status?.cameraInterrupted == true,
+            cameraSwitchPending = cameraSwitchActive,
+            recordingState = recordingState,
+            recordingEnabled = streaming && trackAvailable,
+            onCameraSwitch = { onCommand(CommandType.SWITCH_CAMERA) },
+            onTakePhoto = onTakePhoto,
+            onRecordingToggle = onRecordingToggle,
+            onFullscreen = onFullscreen,
+            videoContent = { videoContent() },
         )
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(260.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Black),
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                videoContent()
-                if (!streaming) {
-                    Text(
-                        "Video non attivo",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
         if (streaming) {
             Text(
                 "Camera ${if (item.status?.cameraFacing == "back") "posteriore" else "frontale"}",

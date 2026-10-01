@@ -1,6 +1,7 @@
 /**
  * @author Infinity
  * @description Repository condiviso per Supabase, tracking, comandi e contenuti multimediali.
+ * @modified 01.10.2026 - Infinity | Richiesta room LiveKit condivisa tra i trasmettitori.
  * @modified 01.10.2026 - Infinity | Aggiunta lettura e modifica della challenge ricevitore.
  * @modified 29.09.2026 - MDS | Aggiunta consegna persistente dei messaggi testuali.
  * @modified 29.09.2026 - MDS | Distinti lease UI, tracking persistente e disattivazione manuale.
@@ -690,7 +691,11 @@ class FindMeRepository(
         ensureAuthenticated()
         return client.functions.invoke(
             function = "livekit-token",
-            body = LiveKitTokenRequest(deviceId, mode),
+            body = LiveKitTokenRequest(
+                deviceId = deviceId,
+                mode = mode,
+                sharedRoom = true,
+            ),
         ).body()
     }
 

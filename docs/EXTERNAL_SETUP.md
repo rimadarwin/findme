@@ -150,10 +150,12 @@ select cron.schedule(
 3. Mettere soltanto l'URL in `local.properties`.
 4. Salvare key e secret nei Supabase secrets come indicato sopra.
 
-Non occorre creare stanze manualmente: vengono create alla prima connessione con
-nome `receiver-<receiver_uuid>-device-<device_uuid>`. Firebase resta condiviso:
-i token FCM sono già isolati per `receiver_id` e non usano la configurazione
-LiveKit.
+Non occorre creare stanze manualmente: vengono create alla prima connessione
+con nome `receiver-<receiver_uuid>`. I trasmettitori associati pubblicano nella
+stessa stanza con identità distinta; gli APK legacy possono ancora usare
+temporaneamente `receiver-<receiver_uuid>-device-<device_uuid>`. Firebase resta
+condiviso: i token FCM sono già isolati per `receiver_id` e non usano la
+configurazione LiveKit.
 
 ## 3. Mappe gratuite
 

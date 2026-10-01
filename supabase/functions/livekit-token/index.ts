@@ -1,6 +1,7 @@
 /**
  * @author Infinity
  * @description Genera token LiveKit usando il provider condiviso o quello dedicato al ricevitore.
+ * @modified 01.10.2026 - Infinity | Aggiunta room condivisa con identità trasmettitore stabile.
  * @modified 24.09.2026 - MDS | Aggiunta risoluzione multi-tenant con fallback condiviso.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -35,7 +36,11 @@ Deno.serve(async (request) => {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return json({ error: "Unauthorized" }, 401);
 
-    const { device_id: deviceId, mode } = await request.json();
+    const {
+      device_id: deviceId,
+      mode,
+      shared_room: sharedRoom = false,
+    } = await request.json();
     if (!deviceId || !["publish", "subscribe"].includes(mode)) {
       return json({ error: "Invalid request" }, 400);
     }
@@ -86,12 +91,17 @@ Deno.serve(async (request) => {
     }
 
     const provider = await resolveLiveKitProvider(admin, receiverId);
-    const room = `receiver-${receiverId}-device-${deviceId}`;
+    const room = sharedRoom
+      ? `receiver-${receiverId}`
+      : `receiver-${receiverId}-device-${deviceId}`;
+    const participantIdentity = sharedRoom && mode === "publish"
+      ? `transmitter-${deviceId}`
+      : `${mode}-${user.id}-${crypto.randomUUID()}`;
     const token = new AccessToken(
       provider.apiKey,
       provider.apiSecret,
       {
-        identity: `${mode}-${user.id}-${crypto.randomUUID()}`,
+        identity: participantIdentity,
         ttl: "10m",
       },
     );

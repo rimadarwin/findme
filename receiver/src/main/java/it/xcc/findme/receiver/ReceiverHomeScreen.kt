@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,6 +38,7 @@ fun ReceiverHomeScreen(
     heartbeatIntervalSec: Int,
     onDeviceClick: (String) -> Unit,
     onAliasSave: (String, String) -> Unit,
+    onGroupMediaClick: () -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -96,12 +98,29 @@ fun ReceiverHomeScreen(
             }
         }
         item {
-            Text(
-                "Dispositivi associati (${devices.size})",
-                modifier = Modifier.padding(top = 4.dp),
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.titleLarge,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Dispositivi associati (${devices.size})",
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(top = 4.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                IconButton(
+                    onClick = onGroupMediaClick,
+                    enabled = devices.size >= 2,
+                ) {
+                    Icon(
+                        Icons.Outlined.GridView,
+                        contentDescription = "Visualizzazione dispositivi multipli",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
         }
         if (devices.isEmpty()) {
             item {

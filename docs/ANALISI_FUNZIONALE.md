@@ -292,6 +292,32 @@ Il pallino è verde solo se:
 
 Il dispositivo può quindi essere **Online** ma con monitoraggio non attivo.
 
+### 6.3 Visualizzazione multipla
+
+L’icona griglia all’estrema destra del titolo **Dispositivi associati** è
+abilitata quando esistono almeno due trasmettitori. Apre una selezione multipla
+e richiede almeno due dispositivi prima di proseguire.
+
+Il dettaglio di gruppo contiene soltanto le tab **Video** e **Audio**:
+
+- gli switch generali avviano o fermano lo stream su tutti i dispositivi
+  selezionati e distinguono lo stato completo da quello parziale;
+- i riquadri video neri a tutta larghezza sono mostrati uno sotto l’altro;
+  fullscreen, cambio camera, foto e registrazione sono sovrapposti in una
+  colonna compatta sul bordo destro;
+- il fullscreen landscape presenta una griglia 2×2 e diventa scorrevole oltre
+  quattro video; da ogni riquadro si apre il singolo flusso e Indietro torna
+  prima alla griglia e poi al dettaglio;
+- il fullscreen individuale resta portrait, mostra i comandi sotto il video e
+  consente di ruotare di 90° immagine e comandi mantenendo l’aspect-fit;
+- gli audio vengono riprodotti insieme e mantengono indicatore e registrazione
+  separati per dispositivo;
+- video e audio producono un file per trasmettitore e consentono al massimo due
+  registrazioni contemporanee per tipo.
+
+La chiusura del dettaglio ferma gli stream del gruppo e rilascia la sessione
+LiveKit quando non è più necessaria.
+
 ## 7. Dettaglio trasmettitore
 
 ### 7.1 Testata compatta
@@ -396,10 +422,10 @@ La mappa fullscreen:
 Contiene:
 
 1. card **Streaming video** con switch;
-2. icona cambio camera da 30 dp;
-3. icona fotografia da 28 dp;
-4. card **Registra video**;
-5. riquadro nero 260 dp;
+2. riquadro nero a tutta larghezza, alto 260 dp, con video verticale centrato;
+3. colonna nera destra con fullscreen, cambio camera, foto e registrazione;
+4. timer sotto l’icona REC durante la registrazione;
+5. fullscreen nell’angolo del video;
 6. indicazione camera frontale/posteriore quando lo stream è attivo.
 
 Lo switch è abilitato solo con dispositivo online e camera disponibile.
@@ -418,6 +444,15 @@ La fotografia:
   basso a destra, simulando l’animazione screenshot.
 
 Il riquadro mostra **Video non attivo** quando lo stream è spento.
+
+Se la fotocamera viene espulsa da un’applicazione locale, il trasmettitore
+pubblica lo stato di interruzione e il ricevitore sovrappone un avviso
+esplicito. Il ripristino resta volontario: chiusa l’app concorrente, l’utente
+spegne e riaccende lo stream.
+
+Il fullscreen individuale forza l’orientamento portrait, mantiene il video in
+aspect-fit e dispone i comandi sotto l’immagine. Un controllo ruota di 90° il
+video e le icone; Indietro ripristina orientamento e barre di sistema.
 
 ### 7.5 Registrazione video
 

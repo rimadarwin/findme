@@ -354,12 +354,19 @@ Una riga per trasmettitore:
 - disponibilità camera/microfono;
 - streaming camera/microfono/schermo;
 - `screen_share_ready`;
+- `camera_interrupted`, valorizzato dai callback del capturer LiveKit quando la
+  camera attiva viene espulsa, disconnessa o bloccata;
 - camera `front`/`back`;
 - `last_heartbeat`.
 
 I booleani media nel modello Kotlin usano `@EncodeDefault`. È indispensabile:
 senza serializzazione esplicita di `false`, un upsert può omettere il campo e
 lasciare nel DB uno stream erroneamente ON.
+
+`MonitoringService` registra un `CameraEventsHandler` sul capturer attivo.
+Errore, disconnessione o freeze impostano `camera_interrupted`; il primo frame
+valido e gli espliciti start/stop lo azzerano. Il ricevitore usa lo stato solo
+per mostrare l’avviso, senza introdurre tentativi automatici di recovery.
 
 ### 8.7 Posizione
 
@@ -549,7 +556,10 @@ Modalità:
 - `publish`: solo il proprietario del transmitter;
 - `subscribe`: solo proprietario di un receiver associato.
 
-Stanza: `device-<transmitterUuid>`.
+I client correnti usano la stanza condivisa `receiver-<receiverUuid>`.
+Il publisher ha identità `transmitter-<transmitterUuid>`, necessaria per
+associare ogni track al dispositivo corretto. Le richieste legacy prive di
+`shared_room` mantengono temporaneamente la stanza per coppia.
 
 Token:
 
@@ -689,7 +699,11 @@ La Edge Function ricava prima il ricevitore autorizzato dalla relazione
 `receiver_transmitters`. Se esiste una riga in `receiver_service_configs`,
 carica gli Edge Secrets indicati dalla riga e usa il relativo URL LiveKit;
 altrimenti usa `LIVEKIT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET`
-condivisi. La stanza è isolata con il nome
+condivisi. I client aggiornati usano la stanza condivisa
+`receiver-<receiver_uuid>`; ogni publisher ha identità stabile
+`transmitter-<device_uuid>`, mentre il subscriber conserva un’identità di
+sessione univoca. La richiesta `shared_room` mantiene compatibile la Edge
+Function con i vecchi APK, che continuano a ricevere la stanza
 `receiver-<receiver_uuid>-device-<device_uuid>`.
 
 Il contratto Android resta indipendente dal provider: `livekit-token` restituisce
@@ -720,7 +734,20 @@ Watchdog:
 
 ## 17. Rendering receiver
 
-Usare due `TextureViewRenderer` distinti:
+Per il dettaglio singolo usare renderer distinti per camera e screen share.
+La visualizzazione multipla mantiene invece mappe indicizzate per `deviceId`:
+
+- participant e track sono associati tramite l’identità
+  `transmitter-<device_uuid>`;
+- ogni camera usa il proprio `TextureViewRenderer`;
+- audio level, feedback comando, registratore e timer restano indipendenti;
+- il comando aggregato viene inviato in parallelo ma confermato sullo stato di
+  ogni trasmettitore;
+- `adaptiveStream` adegua la qualità ricevuta alle dimensioni del renderer e
+  `dynacast` sospende i layer video non utilizzati;
+- il limite applicativo è di due encoder video e due encoder audio simultanei.
+
+Le sorgenti del dettaglio singolo restano:
 
 - camera;
 - screen share.
@@ -730,16 +757,19 @@ Il binding deve basarsi su `Track.Source.CAMERA` e
 
 Accortezze essenziali:
 
-- inizializzare ogni renderer una sola volta per lifecycle;
-- mantenere l’istanza persistente attraverso ricomposizioni/cambio tab;
-- non chiamare `release()` in un `DisposableEffect` che scatta al semplice
-  cambio tab;
-- rilasciare tutti i renderer soltanto durante disconnect/destroy definitivo;
+- assegnare un’identità distinta a preview, fullscreen singolo e griglia;
+- mantenere l’istanza persistente soltanto nelle ricomposizioni dello stesso
+  target;
+- collegare e scollegare il sink in un `DisposableEffect` che include renderer,
+  track e stato streaming;
+- rilasciare il renderer quando il relativo target esce dalla composizione;
 - rimuovere sink dalla track corretta;
 - pulire solo la sorgente disconnessa.
 
-La doppia inizializzazione produce `Already initialized`; il rilascio
-prematuro porta a video nero dopo cambio tab o reconnect.
+La doppia inizializzazione produce `Already initialized`. Riutilizzare invece
+la stessa identità tra preview e fullscreen può lasciare il renderer rimosso
+dalla track quando Compose conserva le chiavi dell’effetto, producendo un
+riquadro nero pur con stream e track attivi.
 
 Scaling:
 
@@ -1250,8 +1280,11 @@ Soluzione:
 
 ### Fullscreen nero
 
-Il renderer era stato rilasciato dal preview prima del riuso. La track e il
-renderer devono restare vivi attraversando la navigazione fullscreen.
+Preview, fullscreen singolo e griglia devono usare identità di rendering
+distinte. Ogni target inizializza il proprio renderer, lo collega alla track
+quando entra in composizione e lo scollega/rilascia quando esce. In questo
+modo il ritorno dal fullscreen non dipende dal riuso interno deciso da Compose
+e non richiede il riavvio manuale dello stream.
 
 ### Video OFF non fermava
 

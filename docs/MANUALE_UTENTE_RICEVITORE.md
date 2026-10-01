@@ -97,6 +97,35 @@ Sotto la testata sono disponibili cinque icone:
 Uscendo dal dettaglio FindMe ferma stream e registrazioni e scarta
 un’eventuale bozza vocale.
 
+### 2.5 Visualizzare più dispositivi insieme
+
+Premere l’icona griglia a destra di **Dispositivi associati**, selezionare
+almeno due trasmettitori e scegliere **Apri visualizzazione**.
+
+La pagina risultante contiene soltanto **Video** e **Audio**:
+
+- lo switch superiore avvia o ferma lo stream su tutti i dispositivi;
+- nella tab Video le anteprime nere a tutta larghezza sono una sotto l’altra;
+  sul bordo destro fullscreen, cambio camera, foto e registrazione sono
+  raccolti in un’unica colonna;
+- l’icona fullscreen generale apre una griglia orizzontale 2×2, dimensionata
+  per mostrare quattro video interi; con più di quattro video scorrere verso
+  il basso;
+- nel fullscreen singolo il telefono resta verticale: il video mantiene le
+  proporzioni e i comandi restano nella barra inferiore. L’icona di rotazione
+  ruota di 90° sia il video sia i comandi;
+- dal fullscreen singolo, Indietro torna alla griglia e un secondo Indietro
+  torna alla pagina del gruppo;
+- nella tab Audio tutti i flussi attivi vengono ascoltati insieme.
+
+Le registrazioni producono file distinti con il nome e l’identificativo del
+trasmettitore. È possibile registrare contemporaneamente al massimo due video
+e due audio; raggiunto il limite, i pulsanti degli altri dispositivi restano
+disabilitati finché una registrazione non viene fermata.
+
+Uscendo dalla visualizzazione multipla FindMe invia lo stop ai dispositivi
+selezionati e chiude la connessione multimediale quando non serve più.
+
 ## 3. Configurazioni generali
 
 Toccare l’ingranaggio nella sezione **Questo telefono**.
@@ -301,7 +330,9 @@ Toccare l’icona videocamera.
 ![Streaming video attivo](manuale/assets/receiver-07-video-attivo.jpg)
 
 Nella schermata sopra lo switch **Streaming video** è attivo e l’anteprima
-mostra il flusso remoto (in questo esempio dalla **camera frontale**).
+mostra il flusso remoto (in questo esempio dalla **camera frontale**) centrato
+nel riquadro nero a tutta larghezza. Sul bordo destro sono incolonnati
+fullscreen, cambio camera, foto e registrazione.
 
 ### 6.1 Avviare e fermare il video
 
@@ -312,6 +343,10 @@ mostra il flusso remoto (in questo esempio dalla **camera frontale**).
 4. Spegnere lo switch per terminare.
 
 LiveKit viene collegato soltanto mentre almeno uno stream è attivo.
+
+Se una fotocamera locale o un’altra applicazione interrompe lo streaming,
+l’anteprima mostra un avviso. Chiudere l’app che usa la fotocamera, quindi
+spegnere e riaccendere **Streaming video** per riprendere.
 
 ### 6.2 Cambiare fotocamera
 
@@ -346,6 +381,15 @@ Il file MP4 viene salvato in:
 La registrazione contiene il video H.264 senza audio, dura al massimo 30
 minuti e viene finalizzata automaticamente se si spegne lo stream, si cambia
 tab o si lascia il dettaglio.
+
+### 6.5 Video a schermo intero
+
+Con lo streaming attivo, premere l’icona fullscreen nell’angolo
+dell’anteprima. Il telefono resta verticale e il video mantiene le proporzioni
+senza zoom o ritagli. Cambio camera, foto, registrazione, rotazione ed uscita
+restano disponibili nella barra inferiore. Il comando di rotazione gira di
+90° sia l’immagine sia le icone. Premere l’icona di uscita o Indietro per
+tornare al dettaglio.
 
 ## 7. Audio
 

@@ -1,6 +1,7 @@
 /**
  * @author Infinity
  * @description Modelli serializzabili condivisi tra ricevitore e trasmettitore.
+ * @modified 01.10.2026 - Infinity | Aggiunta richiesta room LiveKit condivisa per ricevitore.
  * @modified 01.10.2026 - Infinity | Aggiunta configurazione accesso del ricevitore.
  * @modified 29.09.2026 - MDS | Aggiunti comando e stato dei messaggi testuali.
  * @modified 29.09.2026 - MDS | Esposto lo stato persistente di tracking e retry geofence.
@@ -38,6 +39,8 @@ data class DeviceStatus(
     @SerialName("microphone_available") val microphoneAvailable: Boolean = false,
     @EncodeDefault
     @SerialName("camera_streaming") val cameraStreaming: Boolean = false,
+    @EncodeDefault
+    @SerialName("camera_interrupted") val cameraInterrupted: Boolean = false,
     @EncodeDefault
     @SerialName("microphone_streaming") val microphoneStreaming: Boolean = false,
     @EncodeDefault
@@ -142,6 +145,7 @@ data class TextMessage(
 data class LiveKitTokenRequest(
     @SerialName("device_id") val deviceId: String,
     val mode: String,
+    @SerialName("shared_room") val sharedRoom: Boolean,
 )
 
 @Serializable

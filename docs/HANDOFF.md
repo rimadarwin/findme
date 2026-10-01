@@ -1,6 +1,7 @@
 /**
  * @author Infinity
  * @description Stato tecnico e indicazioni di passaggio del progetto FindMe.
+ * @modified 01.10.2026 - Infinity | Documentata visualizzazione multimediale multipla.
  * @modified 01.10.2026 - Infinity | Documentati challenge modificabile e raggi area brevi.
  * @modified 29.09.2026 - MDS | Documentati distanza TX-RX e messaggi overlay.
  * @modified 29.09.2026 - MDS | Documentata l'implementazione dell'alert area persistente.
@@ -38,6 +39,21 @@ Evoluzioni implementate e validate sui dispositivi reali:
 - dettaglio dispositivo con tab Posizione, Video e Audio;
 - streaming audio/video controllato da switch e stato sincronizzato via
   Supabase Realtime;
+- visualizzazione simultanea di almeno due trasmettitori in room LiveKit
+  condivisa per ricevitore, con griglia video 2×2 adattata all’altezza,
+  fullscreen singolo portrait senza deformazione, comandi inferiori e
+  rotazione coordinata di video e icone,
+  ascolto audio combinato e massimo due registrazioni separate per tipo;
+- anteprime video nere a tutta larghezza nei dettagli singolo e multiplo, con
+  colonna destra compatta per fullscreen, cambio camera, foto e registrazione;
+- rendering camera sempre in modalità fit, senza ritaglio, e fullscreen
+  singolo portrait anche nel dettaglio del dispositivo;
+- renderer camera con identità separate per preview, fullscreen e griglia,
+  binding deterministico alla track e rilascio all’uscita dalla composizione,
+  così il ritorno dal fullscreen non lascia il video nero;
+- rilevamento dell’espulsione della camera da parte di applicazioni locali,
+  stato persistente su `device_status` e avviso che richiede il riavvio
+  manuale dello stream;
 - cambio remoto tra camera frontale e posteriore;
 - visualizzatore audio animato basato sul livello LiveKit, senza dipendenze
   aggiuntive;

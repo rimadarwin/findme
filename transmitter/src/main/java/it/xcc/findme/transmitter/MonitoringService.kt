@@ -1,6 +1,7 @@
 /**
  * @author Infinity
  * @description Servizio foreground per tracking, comandi remoti e streaming del trasmettitore.
+ * @modified 01.10.2026 - Infinity | Abilitato dynacast per i flussi nella room condivisa.
  * @modified 29.09.2026 - MDS | Aggiunta coda non bloccante dei messaggi overlay.
  * @modified 29.09.2026 - MDS | Mantenuti tracking rapido e retry notifica dopo l'uscita area.
  * @modified 23.09.2026 - MDS | Aggiunto recovery automatico delle richieste posizione bloccate.
@@ -39,6 +40,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.livekit.android.LiveKit
+import io.livekit.android.RoomOptions
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.events.collect
 import io.livekit.android.room.Room
@@ -48,6 +50,7 @@ import io.livekit.android.room.track.LocalVideoTrack
 import io.livekit.android.room.track.LocalVideoTrackOptions
 import io.livekit.android.room.track.Track
 import io.livekit.android.room.track.VideoCaptureParameter
+import io.livekit.android.room.track.video.CameraCapturerWithSize
 import it.xcc.findme.core.CommandType
 import it.xcc.findme.core.CommandRecoveryPolicy
 import it.xcc.findme.core.ConnectionRecoveryPolicy
@@ -90,6 +93,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.suspendCancellableCoroutine
+import livekit.org.webrtc.CameraVideoCapturer.CameraEventsHandler
 
 class MonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -111,6 +115,9 @@ class MonitoringService : Service() {
     private var cameraStreaming = false
     private var microphoneStreaming = false
     private var screenStreaming = false
+    @Volatile
+    private var cameraInterrupted = false
+    private var observedCameraCapturer: CameraCapturerWithSize? = null
     private var voiceMessagePlaying = false
     private var screenTrack: LocalVideoTrack? = null
     private var mediaRecoveryJob: Job? = null
@@ -141,6 +148,27 @@ class MonitoringService : Service() {
     private lateinit var textOverlayController: TextOverlayController
     private var activeTextMessageCommandId: Long? = null
     private var activeTextMessageId: String? = null
+    private val cameraEventsHandler = object : CameraEventsHandler {
+        override fun onCameraError(errorDescription: String?) {
+            markCameraInterrupted("error: ${errorDescription.orEmpty()}")
+        }
+
+        override fun onCameraDisconnected() {
+            markCameraInterrupted("camera disconnected")
+        }
+
+        override fun onCameraFreezed(errorDescription: String?) {
+            markCameraInterrupted("frozen: ${errorDescription.orEmpty()}")
+        }
+
+        override fun onCameraOpening(cameraName: String?) = Unit
+
+        override fun onFirstFrameAvailable() {
+            updateCameraInterrupted(false, "first frame available")
+        }
+
+        override fun onCameraClosed() = Unit
+    }
     private var overlayPermissionRecoveryJob: Job? = null
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -687,8 +715,19 @@ class MonitoringService : Service() {
 
         val activeRoom = room ?: connectMediaRoom()
         if (cameraStreaming != desiredCameraStreaming) {
+            if (desiredCameraStreaming) cameraInterrupted = false
             activeRoom.localParticipant.setCameraEnabled(desiredCameraStreaming)
             cameraStreaming = desiredCameraStreaming
+        }
+        if (desiredCameraStreaming) {
+            observeCameraTrack(
+                activeRoom.localParticipant
+                    .getTrackPublication(Track.Source.CAMERA)
+                    ?.track as? LocalVideoTrack,
+            )
+        } else {
+            observeCameraTrack(null)
+            cameraInterrupted = false
         }
         if (microphoneStreaming != effectiveMicrophoneStreaming) {
             activeRoom.localParticipant.setMicrophoneEnabled(effectiveMicrophoneStreaming)
@@ -702,6 +741,30 @@ class MonitoringService : Service() {
                 screenTrack = null
                 screenStreaming = false
             }
+        }
+    }
+
+    private fun observeCameraTrack(track: LocalVideoTrack?) {
+        val capturer = track?.capturer as? CameraCapturerWithSize
+        if (observedCameraCapturer === capturer) return
+        observedCameraCapturer?.cameraEventsDispatchHandler
+            ?.unregisterHandler(cameraEventsHandler)
+        observedCameraCapturer = capturer
+        capturer?.cameraEventsDispatchHandler?.registerHandler(cameraEventsHandler)
+    }
+
+    private fun markCameraInterrupted(reason: String) {
+        if (!desiredCameraStreaming) return
+        updateCameraInterrupted(true, reason)
+    }
+
+    private fun updateCameraInterrupted(interrupted: Boolean, reason: String) {
+        if (cameraInterrupted == interrupted) return
+        cameraInterrupted = interrupted
+        Log.w(TAG, "Camera interruption changed=$interrupted reason=$reason")
+        scope.launch {
+            runCatching { publishStatus() }
+                .onFailure { Log.e(TAG, "Camera interruption status publish failed", it) }
         }
     }
 
@@ -743,13 +806,18 @@ class MonitoringService : Service() {
 
     private suspend fun connectMediaRoom(): Room {
         val credentials = repository.liveKitToken(identity.id, "publish")
-        val newRoom = LiveKit.create(applicationContext)
+        val newRoom = LiveKit.create(
+            appContext = applicationContext,
+            options = RoomOptions(dynacast = true),
+        )
         mediaEventsJob?.cancel()
         mediaEventsJob = scope.launch {
             newRoom.events.collect { event ->
                 if (event is RoomEvent.Disconnected && room === newRoom) {
+                    observeCameraTrack(null)
                     room = null
                     cameraStreaming = false
+                    cameraInterrupted = false
                     microphoneStreaming = false
                     screenStreaming = false
                     screenTrack = null
@@ -776,10 +844,12 @@ class MonitoringService : Service() {
         mediaRecoveryJob = null
         mediaEventsJob?.cancel()
         mediaEventsJob = null
+        observeCameraTrack(null)
         room?.disconnect()
         if (room != null) Log.i(TAG, "LiveKit publisher disconnected: no active streams")
         room = null
         cameraStreaming = false
+        cameraInterrupted = false
         microphoneStreaming = false
         screenStreaming = false
         screenTrack = null
@@ -861,6 +931,7 @@ class MonitoringService : Service() {
                 cameraAvailable = packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY),
                 microphoneAvailable = packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE),
                 cameraStreaming = cameraStreaming,
+                cameraInterrupted = cameraInterrupted,
                 microphoneStreaming = microphoneStreaming,
                 screenShareReady = screenProjectionController.isReady,
                 screenStreaming = screenStreaming,
